@@ -10,7 +10,10 @@ class Connection(QGraphicsPathItem):
     def __init__(self, start_socket, end_socket):
         super().__init__()
         self.start_socket, self.end_socket = start_socket, end_socket
-        self.setPen(QPen(QColor("#a2a2a2"), 2))
+        self.default_pen = QPen(QColor("#a2a2a2"), 2)
+        self.selected_pen = QPen(QColor("#fffc42"), 3)
+        self.active_pen = QPen(QColor(93, 173, 226), 2.5)
+        self.setPen(self.default_pen)
         self.setZValue(0)
         self.start_socket.add_connection(self)
         self.end_socket.add_connection(self)
@@ -19,8 +22,15 @@ class Connection(QGraphicsPathItem):
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedChange:
-            self.setPen(QPen(QColor("#fffc42"), 3) if value else QPen(QColor("#a2a2a2"), 2))
+            self.setPen(self.selected_pen if value else self.default_pen)
         return super().itemChange(change, value)
+
+    def set_active_state(self, active):
+        if active:
+            self.setPen(self.active_pen)
+        else:
+            is_selected = self.isSelected()
+            self.setPen(self.selected_pen if is_selected else self.default_pen)
 
     def update_path(self):
         p1, p2 = self.start_socket.scenePos(), self.end_socket.scenePos()
@@ -113,6 +123,7 @@ class BaseNode(QGraphicsItem):
                       QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
                       QGraphicsItem.GraphicsItemFlag.ItemSendsScenePositionChanges)
         self.setZValue(1)
+        self.active_pen = QPen(QColor(93, 173, 226), 2, Qt.PenStyle.DashLine)
         self._create_elements();
         self._create_sockets()
         self._create_validation_indicator()
@@ -169,12 +180,19 @@ class BaseNode(QGraphicsItem):
         self.error_icon = QGraphicsTextItem("⚠️", self)
         self.error_icon.setFont(QFont("Arial", 12))
         self.error_icon.setPos(self.width - 24, 2)
-        self.error_icon.setZValue(1)
+        self.error_icon.setZValue(3)
         self.error_icon.setVisible(False)
 
     def set_validation_state(self, is_valid, message=""):
         self.error_icon.setVisible(not is_valid)
         self.error_icon.setToolTip(message)
+
+    def set_active_state(self, active):
+        if active:
+            self.rect.setPen(self.active_pen)
+        else:
+            is_selected = self.isSelected()
+            self.rect.setPen(QPen(QColor("#fffc42"), 2) if is_selected else QPen(Qt.GlobalColor.black, 1))
 
     def validate(self, config):
         self.set_validation_state(True)
@@ -826,5 +844,4 @@ class FrameItem(QGraphicsItem):
         frame.id = data.get('id', str(uuid.uuid4()))
         frame.setPos(QPointF(*data['pos']))
         return frame
-
 

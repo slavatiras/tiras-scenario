@@ -14,6 +14,7 @@ class EditorView(QGraphicsView):
     def __init__(self, scene, undo_stack, parent=None):
         super().__init__(scene, parent)
         self.undo_stack = undo_stack
+        self._is_interactive = True
 
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.start_socket = None
@@ -38,6 +39,9 @@ class EditorView(QGraphicsView):
         self._update_minimap_timer.setInterval(100)
         self._update_minimap_timer.timeout.connect(self.update_minimap)
         self._update_minimap_timer.start()
+
+    def set_interactive(self, is_interactive):
+        self._is_interactive = is_interactive
 
     def create_resize_command(self, item, old_dims, new_dims):
         command = ResizeCommand(item, old_dims, new_dims)
@@ -85,6 +89,8 @@ class EditorView(QGraphicsView):
         painter.drawLines(lines_dark)
 
     def mousePressEvent(self, event):
+        if not self._is_interactive:
+            return
         if event.button() == Qt.MouseButton.MiddleButton:
             self._is_panning = True
             self.pan_last_pos = event.pos()
@@ -125,6 +131,8 @@ class EditorView(QGraphicsView):
             self.moved_items_start_pos.clear()
 
     def mouseMoveEvent(self, event):
+        if not self._is_interactive:
+            return
         if self._is_panning:
             delta = event.pos() - self.pan_last_pos
             self.pan_last_pos = event.pos()
@@ -144,6 +152,8 @@ class EditorView(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
+        if not self._is_interactive:
+            return
         if event.button() == Qt.MouseButton.MiddleButton:
             self._is_panning = False
             self.setCursor(Qt.CursorShape.ArrowCursor)
@@ -231,10 +241,14 @@ class EditorView(QGraphicsView):
             item.set_highlight(is_valid)
 
     def wheelEvent(self, event):
+        if not self._is_interactive:
+            return
         zoom = 1.25 if event.angleDelta().y() > 0 else 1 / 1.25
         self.scale(zoom, zoom)
 
     def keyPressEvent(self, event):
+        if not self._is_interactive:
+            return
         key_text = event.text().lower()
 
         if event.modifiers() == Qt.KeyboardModifier.ControlModifier and key_text in ('g', 'п'):
@@ -251,6 +265,8 @@ class EditorView(QGraphicsView):
             super().keyPressEvent(event)
 
     def contextMenuEvent(self, event):
+        if not self._is_interactive:
+            return
         item_at_pos = self.itemAt(event.pos())
         logical_item = item_at_pos
         while logical_item and not isinstance(logical_item, (BaseNode, Connection, CommentItem, FrameItem)):

@@ -7,7 +7,6 @@ from nodes import BaseNode, Connection, CommentItem, FrameItem, TriggerNode, NOD
 
 
 class AddNodeCommand(QUndoCommand):
-# ... existing code ...
     def __init__(self, scene, node_type_name, position, parent=None):
         super().__init__(parent)
         self.scene = scene
@@ -30,7 +29,6 @@ class AddNodeCommand(QUndoCommand):
 
 
 class AddNodeAndConnectCommand(QUndoCommand):
-# ... existing code ...
     def __init__(self, scene, node_type_name, position, start_node_id, start_socket_is_output, parent=None):
         super().__init__(parent)
         self.scene = scene
@@ -90,7 +88,6 @@ class AddNodeAndConnectCommand(QUndoCommand):
 
 
 class AddCommentCommand(QUndoCommand):
-# ... existing code ...
     def __init__(self, scene, position, view, parent=None):
         super().__init__(parent)
         self.scene = scene
@@ -125,7 +122,6 @@ class ResizeCommand(QUndoCommand):
 
 
 class AlignNodesCommand(QUndoCommand):
-# ... existing code ...
     def __init__(self, nodes, mode, parent=None):
         super().__init__(parent)
         self.nodes = nodes
@@ -134,36 +130,34 @@ class AlignNodesCommand(QUndoCommand):
         self.setText("Вирівняти вузли")
 
     def redo(self):
-        if not self.nodes:
+        if len(self.nodes) < 2:
             return
 
-        target_node = self.nodes[0]
-        target_rect = target_node.sceneBoundingRect()
-
         if self.mode == 'left':
-            align_pos = target_rect.left()
-            for node in self.nodes[1:]:
-                node.setX(align_pos)
+            target_pos = min(node.scenePos().x() for node in self.nodes)
+            for node in self.nodes:
+                node.setX(target_pos)
         elif self.mode == 'right':
-            align_pos = target_rect.right()
-            for node in self.nodes[1:]:
-                node.setX(align_pos - node.sceneBoundingRect().width())
+            target_pos = max(node.sceneBoundingRect().right() for node in self.nodes)
+            for node in self.nodes:
+                node.setX(target_pos - node.sceneBoundingRect().width())
         elif self.mode == 'h_center':
-            align_pos = target_rect.center().x()
-            for node in self.nodes[1:]:
-                node.setX(align_pos - node.sceneBoundingRect().width() / 2)
+            avg_center = sum(node.sceneBoundingRect().center().x() for node in self.nodes) / len(self.nodes)
+            for node in self.nodes:
+                node.setX(avg_center - node.sceneBoundingRect().width() / 2)
         elif self.mode == 'top':
-            align_pos = target_rect.top()
-            for node in self.nodes[1:]:
-                node.setY(align_pos)
+            target_pos = min(node.scenePos().y() for node in self.nodes)
+            for node in self.nodes:
+                node.setY(target_pos)
         elif self.mode == 'bottom':
-            align_pos = target_rect.bottom()
-            for node in self.nodes[1:]:
-                node.setY(align_pos - node.sceneBoundingRect().height())
+            target_pos = max(node.sceneBoundingRect().bottom() for node in self.nodes)
+            for node in self.nodes:
+                node.setY(target_pos - node.sceneBoundingRect().height())
         elif self.mode == 'v_center':
-            align_pos = target_rect.center().y()
-            for node in self.nodes[1:]:
-                node.setY(align_pos - node.sceneBoundingRect().height() / 2)
+            avg_center = sum(node.sceneBoundingRect().center().y() for node in self.nodes) / len(self.nodes)
+            for node in self.nodes:
+                node.setY(avg_center - node.sceneBoundingRect().height() / 2)
+
 
     def undo(self):
         for node, pos in self.old_positions.items():
@@ -171,7 +165,6 @@ class AlignNodesCommand(QUndoCommand):
 
 
 class RemoveItemsCommand(QUndoCommand):
-# ... existing code ...
     def __init__(self, scene, items, parent=None):
         super().__init__(parent)
         self.scene = scene
@@ -247,7 +240,6 @@ class RemoveItemsCommand(QUndoCommand):
 
 
 class MoveItemsCommand(QUndoCommand):
-# ... existing code ...
     def __init__(self, items_map, parent=None):
         super().__init__(parent)
         self.scene = list(items_map.keys())[0].scene() if items_map else None
@@ -271,7 +263,6 @@ class MoveItemsCommand(QUndoCommand):
 
 
 class AddConnectionCommand(QUndoCommand):
-# ... existing code ...
     def __init__(self, scene, start_socket, end_socket, parent=None):
         super().__init__(parent)
         self.scene = scene
@@ -298,7 +289,6 @@ class AddConnectionCommand(QUndoCommand):
 
 
 class ChangePropertiesCommand(QUndoCommand):
-# ... existing code ...
     def __init__(self, node, old_data, new_data, parent=None):
         super().__init__(parent)
         self.node = node
@@ -325,7 +315,6 @@ class ChangePropertiesCommand(QUndoCommand):
 
 
 class PasteCommand(QUndoCommand):
-# ... existing code ...
     def __init__(self, scene, clipboard_text, position, parent=None):
         super().__init__(parent)
         self.scene = scene
@@ -402,7 +391,6 @@ class PasteCommand(QUndoCommand):
 
 
 class AddFrameCommand(QUndoCommand):
-# ... existing code ...
     def __init__(self, scene, items, parent=None):
         super().__init__(parent)
         self.scene = scene
@@ -438,7 +426,6 @@ class AddFrameCommand(QUndoCommand):
 
 
 class UngroupFrameCommand(QUndoCommand):
-# ... existing code ...
     def __init__(self, scene, frame, parent=None):
         super().__init__(parent)
         self.scene = scene
@@ -455,3 +442,4 @@ class UngroupFrameCommand(QUndoCommand):
             self.scene.addItem(self.frame)
         self.scene.clearSelection()
         self.frame.setSelected(True)
+

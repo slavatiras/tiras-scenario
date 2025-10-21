@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QApplication, QToolBar, QTabWidget, QSpinBox, QGridLayout, QCheckBox,
     QScrollArea
 )
-from PyQt6.QtGui import QColor, QAction, QUndoStack, QFont
+from PyQt6.QtGui import QColor, QAction, QUndoStack, QFont, QIcon
 from PyQt6.QtCore import Qt, QTimer
 
 from nodes import (BaseNode, Connection, CommentItem, NODE_REGISTRY, TriggerNode,
@@ -18,6 +18,7 @@ from nodes import (BaseNode, Connection, CommentItem, NODE_REGISTRY, TriggerNode
 from commands import (AddNodeCommand, AddCommentCommand, RemoveItemsCommand,
                       ChangePropertiesCommand, PasteCommand)
 from editor_view import EditorView
+from simulator import ScenarioSimulator
 
 DEVICE_SPECS = {
     "MOUT8R": {"type": "Модуль релейних виходів", "outputs": 8, "zones": 0},
@@ -43,13 +44,16 @@ class MainWindow(QMainWindow):
         self.scene = QGraphicsScene();
         self.scene.setBackgroundBrush(QColor("#333"))
         self.view = EditorView(self.scene, self.undo_stack, self);
+        self.simulator = ScenarioSimulator(self.scene, self)
         self.setCentralWidget(self.view)
         self._create_actions();
         self._create_menu_bar();
         self._create_tool_bar();
+        self._create_simulation_toolbar()
         self._create_panels()
         self.scene.selectionChanged.connect(self.on_selection_changed)
         self.undo_stack.indexChanged.connect(lambda: QTimer.singleShot(1, self.validate_scenario))
+        self.undo_stack.indexChanged.connect(self._update_simulation_trigger_zones)
         self.new_project()
         self.statusBar().showMessage("Готово")
 
@@ -98,6 +102,29 @@ class MainWindow(QMainWindow):
             action.setToolTip(f"Додати вузол '{node_type}'")
             action.triggered.connect(lambda checked=False, nt=node_type: self._on_toolbar_action_triggered(nt))
             toolbar.addAction(action)
+
+    def _create_simulation_toolbar(self):
+        self.sim_toolbar = QToolBar("Панель симуляції")
+        self.start_sim_action = QAction(QIcon.fromTheme("media-playback-start"), "Старт", self)
+        self.start_sim_action.triggered.connect(self.start_simulation)
+        self.sim_toolbar.addAction(self.start_sim_action)
+
+        self.step_sim_action = QAction(QIcon.fromTheme("media-seek-forward"), "Крок", self)
+        self.step_sim_action.triggered.connect(self.step_simulation)
+        self.sim_toolbar.addAction(self.step_sim_action)
+
+        self.stop_sim_action = QAction(QIcon.fromTheme("media-playback-stop"), "Стоп", self)
+        self.stop_sim_action.triggered.connect(self.stop_simulation)
+        self.sim_toolbar.addAction(self.stop_sim_action)
+
+        self.sim_toolbar.addSeparator()
+        self.sim_trigger_zone_combo = QComboBox(self)
+        self.sim_trigger_zone_combo.setToolTip("Виберіть зону для запуску симуляції")
+        self.sim_trigger_zone_combo.setMinimumWidth(250)
+        self.sim_trigger_zone_combo.currentIndexChanged.connect(self.update_simulation_controls)
+        self.sim_toolbar.addWidget(QLabel("  Зона тригера: "))
+        self.sim_toolbar.addWidget(self.sim_trigger_zone_combo)
+        self.addToolBar(self.sim_toolbar)
 
     def _on_toolbar_action_triggered(self, node_type):
         self.add_node(node_type, self.view.mapToScene(self.view.viewport().rect().center()))
@@ -289,6 +316,8 @@ class MainWindow(QMainWindow):
             self.props_apply_timer.start()
 
     def on_selection_changed(self):
+        if self.simulator.is_running:
+            return
         self.props_apply_timer.stop()
         selected_items = self.scene.selectedItems()
 
@@ -635,6 +664,8 @@ class MainWindow(QMainWindow):
         self._old_scenario_name = None
 
     def on_active_scenario_changed(self, current_item, previous_item):
+        if self.simulator.is_running:
+            self.stop_simulation()
         if previous_item:
             prev_id = previous_item.text()
             if prev_id in self.project_data['scenarios']: self.save_current_scenario_state()
@@ -676,6 +707,9 @@ class MainWindow(QMainWindow):
                 self.scene.addItem(Connection(start_node.out_socket, end_node.in_socket))
         for comment_data in scenario_data.get('comments', []):
             self.scene.addItem(CommentItem.from_data(comment_data, self.view))
+
+        self._update_simulation_trigger_zones()
+
         self.validate_scenario()
         for item in self.scene.items():
             if isinstance(item, BaseNode): item.update_display_properties(self.project_data['config'])
@@ -698,8 +732,113 @@ class MainWindow(QMainWindow):
 
     def _perform_validation(self):
         if not self.scene: return
+
+        all_nodes = []
+        trigger_node = None
+
         for item in self.scene.items():
-            if isinstance(item, BaseNode): item.validate(self.project_data['config'])
+            if isinstance(item, BaseNode):
+                all_nodes.append(item)
+                item.validate(self.project_data['config'])
+                if isinstance(item, TriggerNode):
+                    trigger_node = item
+
+        if not trigger_node:
+            for node in all_nodes:
+                if not isinstance(node, TriggerNode):
+                    node.set_validation_state(False, "В сценарії відсутній тригер.")
+            return
+
+        reachable_nodes = set()
+        nodes_to_visit = [trigger_node]
+        reachable_nodes.add(trigger_node)
+
+        while nodes_to_visit:
+            current_node = nodes_to_visit.pop(0)
+            if not current_node.out_socket: continue
+            for conn in current_node.out_socket.connections:
+                next_node = conn.end_socket.parentItem()
+                if isinstance(next_node, BaseNode) and next_node not in reachable_nodes:
+                    reachable_nodes.add(next_node)
+                    nodes_to_visit.append(next_node)
+
+        TERMINAL_NODE_TYPES = (ActivateOutputNode, DeactivateOutputNode, SendSMSNode)
+
+        for node in all_nodes:
+            if node not in reachable_nodes:
+                node.set_validation_state(False, "Узел недостижим от триггера.")
+            elif not node.error_icon.isVisible():
+                is_terminal = isinstance(node, TERMINAL_NODE_TYPES)
+                has_output = node.out_socket and node.out_socket.connections
+                if not is_terminal and not has_output:
+                    node.set_validation_state(False, "Цепочка логики не завершена действием.")
+
+    def _update_simulation_trigger_zones(self):
+        self.sim_trigger_zone_combo.clear()
+        trigger_node = next((item for item in self.scene.items() if isinstance(item, TriggerNode)), None)
+
+        if not trigger_node:
+            self.sim_trigger_zone_combo.addItem("Тригер не знайдено", userData=None)
+            self.update_simulation_controls()
+            return
+
+        props = dict(trigger_node.properties)
+        zone_ids = props.get('zones', [])
+
+        if not zone_ids:
+            self.sim_trigger_zone_combo.addItem("Немає зон в тригері", userData=None)
+        else:
+            all_zones, _ = self._get_all_zones_and_outputs_from_devices()
+            found_zones = False
+            for zid in zone_ids:
+                for z in all_zones:
+                    if z['id'] == zid:
+                        self.sim_trigger_zone_combo.addItem(f"{z['parent_name']}: {z['name']}", userData=zid)
+                        found_zones = True
+                        break
+            if not found_zones:
+                self.sim_trigger_zone_combo.addItem("Призначені зони не знайдено", userData=None)
+
+        self.update_simulation_controls()
+
+    def update_simulation_controls(self):
+        is_ready_for_sim = False
+        if self.scene:
+            trigger_node = next((item for item in self.scene.items() if isinstance(item, TriggerNode)), None)
+            if trigger_node and trigger_node.error_icon.isVisible() is False:
+                is_ready_for_sim = self.sim_trigger_zone_combo.count() > 0 and self.sim_trigger_zone_combo.currentData() is not None
+
+        is_running = self.simulator.is_running
+        self.start_sim_action.setEnabled(is_ready_for_sim and not is_running)
+        self.step_sim_action.setEnabled(is_running)
+        self.stop_sim_action.setEnabled(is_running)
+        self.sim_trigger_zone_combo.setEnabled(not is_running)
+
+    def start_simulation(self):
+        self.validate_scenario()
+        for item in self.scene.items():
+            if isinstance(item, BaseNode) and item.error_icon.isVisible():
+                self.show_status_message("Помилка: Неможливо почати симуляцію, у сценарії є помилки.", 5000,
+                                         color="red")
+                return
+
+        trigger_zone_id = self.sim_trigger_zone_combo.currentData()
+        if self.simulator.start(trigger_zone_id):
+            self.view.set_interactive(False)
+            self.update_simulation_controls()
+
+    def step_simulation(self):
+        self.simulator.step()
+        if not self.simulator.is_running:
+            self.show_status_message("Симуляція завершена: досягнуто кінця гілки.", color="lime")
+            self.stop_simulation()
+        else:
+            self.update_simulation_controls()
+
+    def stop_simulation(self):
+        self.simulator.stop()
+        self.view.set_interactive(True)
+        self.update_simulation_controls()
 
     def show_status_message(self, message, timeout=4000, color=None):
         style = f"color: {color};" if color else ""
