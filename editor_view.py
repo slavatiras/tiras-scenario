@@ -1,3 +1,4 @@
+import logging
 from PyQt6.QtWidgets import QGraphicsView, QGraphicsPathItem, QMenu, QApplication
 from PyQt6.QtGui import QPainter, QPen, QColor, QPainterPath, QAction, QCursor
 from PyQt6.QtCore import Qt, QPointF, QLineF, QSize, QTimer
@@ -8,6 +9,8 @@ from commands import (AddConnectionCommand, MoveItemsCommand, RemoveItemsCommand
                       AddNodeAndConnectCommand, ResizeCommand, AlignNodesCommand, AddFrameCommand, AddCommentCommand,
                       UngroupFrameCommand)
 from minimap import Minimap
+
+log = logging.getLogger(__name__)
 
 
 class EditorView(QGraphicsView):
@@ -51,14 +54,24 @@ class EditorView(QGraphicsView):
         self.minimap.update_view()
 
     def focus_on_item(self, item_to_focus):
+        """
+        Виділяє вказаний елемент і центрує на ньому вигляд.
+        """
+        log.debug(f"Focusing on item: {item_to_focus.id if hasattr(item_to_focus, 'id') else item_to_focus}")
         if not item_to_focus or not item_to_focus.scene():
+            log.warning("focus_on_item: Item is invalid or not in scene.")
             return
 
+        # Блокуємо сигнали, щоб уникнути рекурсивного виклику on_selection_changed
         self.scene().blockSignals(True)
         self.scene().clearSelection()
+        item_to_focus.setSelected(True)
         self.scene().blockSignals(False)
 
-        item_to_focus.setSelected(True)
+        # Викликаємо on_selection_changed вручну, щоб оновити панель властивостей
+        if hasattr(self.parent(), 'on_selection_changed'):
+            self.parent().on_selection_changed()
+
         self.centerOn(item_to_focus)
 
     def resizeEvent(self, event):
@@ -384,4 +397,3 @@ class EditorView(QGraphicsView):
         if selected:
             command = RemoveItemsCommand(self.scene(), selected)
             self.undo_stack.push(command)
-
