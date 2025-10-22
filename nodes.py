@@ -6,6 +6,13 @@ from PyQt6.QtCore import Qt, QRectF, QPointF
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem, QGraphicsEllipseItem, QGraphicsPathItem
 
 
+def generate_short_id():
+    """
+    Генерує лаконічний 12-символьний унікальний ID.
+    """
+    return uuid.uuid4().hex[:12]
+
+
 class Connection(QGraphicsPathItem):
     def __init__(self, start_socket, end_socket):
         super().__init__()
@@ -115,7 +122,7 @@ class Socket(QGraphicsEllipseItem):
 class BaseNode(QGraphicsItem):
     def __init__(self, name="Вузол", node_type="Base", color=QColor("#4A90E2"), icon="●"):
         super().__init__()
-        self.id = str(uuid.uuid4())
+        self.id = generate_short_id() # Використовуємо короткий ID
         self._node_name, self._description = name, ""
         self.node_type, self.node_color, self.node_icon = node_type, color, icon
         self.width, self.height = 180, 85
@@ -286,7 +293,7 @@ class BaseNode(QGraphicsItem):
                     node_class = reg_class
                     break
         node = node_class()
-        node.id = data.get('id', str(uuid.uuid4()))
+        node.id = data.get('id', generate_short_id()) # Використовуємо короткий ID
         node.node_name = data.get('name', '')
         node.description = data.get('description', '')
         node.setPos(QPointF(*data.get('pos', (0, 0))))
@@ -652,7 +659,7 @@ class EditableTextItem(QGraphicsTextItem):
 class CommentItem(QGraphicsItem):
     def __init__(self, text="Коментар", width=200, height=100, view=None):
         super().__init__()
-        self.id = str(uuid.uuid4())
+        self.id = generate_short_id() # Використовуємо короткий ID
         self._width, self._height, self.view = width, height, view
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsMovable |
                       QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
@@ -766,7 +773,7 @@ class CommentItem(QGraphicsItem):
     @classmethod
     def from_data(cls, data, view):
         comment = cls(data['text'], data['size'][0], data['size'][1], view)
-        comment.id = data.get('id', str(uuid.uuid4()))
+        comment.id = data.get('id', generate_short_id()) # Використовуємо короткий ID
         comment.setPos(QPointF(*data['pos']))
         return comment
 
@@ -774,7 +781,7 @@ class CommentItem(QGraphicsItem):
 class FrameItem(QGraphicsItem):
     def __init__(self, text="Новая группа", width=300, height=200, view=None):
         super().__init__()
-        self.id = str(uuid.uuid4())
+        self.id = generate_short_id() # Використовуємо короткий ID
         self._width, self._height, self.view = width, height, view
         self.header_height = 30
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsMovable |
@@ -929,7 +936,6 @@ class FrameItem(QGraphicsItem):
     @classmethod
     def from_data(cls, data, view):
         frame = cls(data['text'], data['size'][0], data['size'][1], view)
-        frame.id = data.get('id', str(uuid.uuid4()))
+        frame.id = data.get('id', generate_short_id()) # Використовуємо короткий ID
         frame.setPos(QPointF(*data['pos']))
         return frame
-

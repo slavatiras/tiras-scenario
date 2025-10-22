@@ -3,7 +3,7 @@ from lxml import etree as ET
 from PyQt6.QtGui import QUndoCommand
 from PyQt6.QtCore import QPointF, QRectF
 
-from nodes import BaseNode, Connection, CommentItem, FrameItem, TriggerNode, NODE_REGISTRY
+from nodes import BaseNode, Connection, CommentItem, FrameItem, TriggerNode, NODE_REGISTRY, generate_short_id
 
 
 class AddNodeCommand(QUndoCommand):
@@ -373,7 +373,7 @@ class PasteCommand(QUndoCommand):
                 node_data = BaseNode.data_from_xml(node_el)
                 new_node = BaseNode.from_data(node_data)
                 old_id = node_data['id']
-                new_id = str(uuid.uuid4())
+                new_id = generate_short_id() # Використовуємо короткий ID
                 new_node.id = new_id
                 old_to_new_id_map[old_id] = new_id
                 original_pos = QPointF(*node_data['pos'])
@@ -467,4 +467,5 @@ class UngroupFrameCommand(QUndoCommand):
             self.scene.addItem(self.frame)
         self.scene.clearSelection()
         self.frame.setSelected(True)
+
 
