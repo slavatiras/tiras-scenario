@@ -1,10 +1,12 @@
 import uuid
+import logging # Додано для логування
 from enum import Enum, auto
 from lxml import etree as ET
 from PyQt6.QtGui import QColor, QPen, QBrush, QFont, QPainterPath, QTextCursor
 from PyQt6.QtCore import Qt, QRectF, QPointF
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem, QGraphicsEllipseItem, QGraphicsPathItem
 
+log = logging.getLogger(__name__) # Створюємо логгер для цього модуля
 
 def generate_short_id():
     """
@@ -40,21 +42,49 @@ class Connection(QGraphicsPathItem):
             self.setPen(self.selected_pen if is_selected else self.default_pen)
 
     def update_path(self):
+        # Перевірка чи сокети ще існують і прив'язані до сцени
+        if not self.start_socket or not self.end_socket or \
+           not self.start_socket.scene() or not self.end_socket.scene():
+            log.warning("Connection.update_path(): Invalid sockets found.")
+            # Можливо, варто видалити з'єднання зі сцени, якщо сокети недійсні?
+            # if self.scene(): self.scene().removeItem(self)
+            return
+
         p1, p2 = self.start_socket.scenePos(), self.end_socket.scenePos()
         path = QPainterPath(p1)
-        path.cubicTo(p1 + QPointF(0, 50), p2 - QPointF(0, 50), p2)
+
+        # Розрахунок контрольних точок для кривої Безьє
+        dx = p2.x() - p1.x()
+        dy = p2.y() - p1.y()
+
+        # Стандартні контрольні точки (вертикальні)
+        ctrl1 = p1 + QPointF(0, dy * 0.5)
+        ctrl2 = p2 - QPointF(0, dy * 0.5)
+
+        # Якщо вузли дуже близько по вертикалі, робимо S-подібну криву
+        threshold = 50 # Емпіричний поріг
+        if abs(dy) < threshold:
+             offset_x = max(50, abs(dx) * 0.2) # Горизонтальне зміщення
+             ctrl1 = p1 + QPointF(offset_x, threshold)
+             ctrl2 = p2 - QPointF(offset_x, threshold)
+
+        path.cubicTo(ctrl1, ctrl2, p2)
         self.setPath(path)
+
 
     def to_data(self):
         start_node = self.start_socket.parentItem()
         end_node = self.end_socket.parentItem()
         if start_node and end_node:
-            return {
-                'from_node': start_node.id,
-                'from_socket': self.start_socket.socket_name,
-                'to_node': end_node.id
-            }
-        return {}
+            # Check if parent nodes still exist (important for undo/redo)
+            if start_node.scene() and end_node.scene():
+                return {
+                    'from_node': start_node.id,
+                    'from_socket': self.start_socket.socket_name,
+                    'to_node': end_node.id
+                }
+        log.warning(f"Connection.to_data(): Invalid connection detected (start={start_node}, end={end_node})")
+        return {} # Return empty if connection is invalid
 
     def to_xml(self, parent_element):
         data = self.to_data()
@@ -75,17 +105,20 @@ class Connection(QGraphicsPathItem):
 
     @staticmethod
     def data_to_xml(parent_element, conn_data):
-        ET.SubElement(parent_element, "connection",
-                      from_node=conn_data.get('from_node', ''),
-                      from_socket=conn_data.get('from_socket', 'out'),
-                      to_node=conn_data.get('to_node', ''))
+        # Ensure all values are strings, provide defaults
+        attrs = {
+            "from_node": str(conn_data.get('from_node', '')),
+            "from_socket": str(conn_data.get('from_socket', 'out')),
+            "to_node": str(conn_data.get('to_node', ''))
+        }
+        ET.SubElement(parent_element, "connection", **attrs)
 
 
 class Socket(QGraphicsEllipseItem):
     def __init__(self, parent_node, socket_name="in", is_output=False):
         super().__init__(-6, -6, 12, 12, parent_node)
         self.is_output, self.connections = is_output, []
-        self.socket_name = socket_name
+        self.socket_name = socket_name # e.g., "in", "out", "out_true", "macro_in_1", "macro_out_exec"
         self.default_brush = QBrush(QColor("#d4d4d4"))
         self.hover_brush = QBrush(QColor("#77dd77"))
         self.is_highlighted = False
@@ -113,27 +146,34 @@ class Socket(QGraphicsEllipseItem):
         self.update()
 
     def add_connection(self, connection):
-        self.connections.append(connection)
+        if connection not in self.connections:
+            self.connections.append(connection)
 
     def remove_connection(self, connection):
-        if connection in self.connections: self.connections.remove(connection)
+        if connection in self.connections:
+            self.connections.remove(connection)
 
 
 class BaseNode(QGraphicsItem):
+    # node_type тут тепер зберігає display name для UI
     def __init__(self, name="Вузол", node_type="Base", color=QColor("#4A90E2"), icon="●"):
         super().__init__()
-        self.id = generate_short_id() # Використовуємо короткий ID
-        self._node_name, self._description = name, ""
-        self.node_type, self.node_color, self.node_icon = node_type, color, icon
+        self.id = generate_short_id() # Используем короткий ID
+        self._node_name = name if name is not None else "Вузол" # Ensure string
+        self._description = ""
+        self.node_type = node_type # This should be the display name (key in NODE_REGISTRY)
+        self.node_color = color
+        self.node_icon = icon
         self.width, self.height = 180, 85
         self.properties = []
+        self._sockets = {} # Dictionary to store sockets {socket_name: Socket}
         self.setFlags(self.flags() | QGraphicsItem.GraphicsItemFlag.ItemIsMovable |
                       QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
                       QGraphicsItem.GraphicsItemFlag.ItemSendsScenePositionChanges)
         self.setZValue(1)
         self.active_pen = QPen(QColor(93, 173, 226), 2, Qt.PenStyle.DashLine)
         self._create_elements();
-        self._create_sockets()
+        self._create_sockets() # Now calls the specific implementation if overridden
         self._create_validation_indicator()
 
     @property
@@ -142,8 +182,9 @@ class BaseNode(QGraphicsItem):
 
     @node_name.setter
     def node_name(self, value):
-        self._node_name = value;
-        self.name_text.setPlainText(value)
+        self._node_name = value if value is not None else "" # Ensure string
+        if hasattr(self, 'name_text'): # Check if element exists
+             self.name_text.setPlainText(self._node_name)
 
     @property
     def description(self):
@@ -151,7 +192,7 @@ class BaseNode(QGraphicsItem):
 
     @description.setter
     def description(self, value):
-        self._description = value
+        self._description = value if value is not None else "" # Ensure string
 
     def _create_elements(self):
         self.rect = QGraphicsRectItem(0, 0, self.width, self.height, self)
@@ -163,6 +204,7 @@ class BaseNode(QGraphicsItem):
         self.icon_text.setFont(QFont("Arial", 16))
         self.icon_text.setPos(8, 4)
 
+        # Use self.node_type (display name) for the type text
         self.type_text = QGraphicsTextItem(self.node_type, self)
         self.type_text.setDefaultTextColor(Qt.GlobalColor.white);
         self.type_text.setFont(QFont("Arial", 10, QFont.Weight.Bold))
@@ -178,33 +220,54 @@ class BaseNode(QGraphicsItem):
         self.properties_text.setFont(QFont("Arial", 8))
         self.properties_text.setPos(8, 55)
 
+    def add_socket(self, name, is_output=False, position=None):
+        """Adds a socket to the node."""
+        if name in self._sockets:
+            # log.warning(f"Socket '{name}' already exists on node {self.id}. Returning existing.")
+            return self._sockets[name]
+        socket = Socket(self, socket_name=name, is_output=is_output)
+        if position:
+            socket.setPos(position)
+        self._sockets[name] = socket
+        return socket
+
     def get_socket(self, name):
-        if name == "in" and hasattr(self, 'in_socket'): return self.in_socket
-        if name == "out" and hasattr(self, 'out_socket'): return self.out_socket
-        if name == "out_true" and hasattr(self, 'out_socket_true'): return self.out_socket_true
-        if name == "out_false" and hasattr(self, 'out_socket_false'): return self.out_socket_false
-        if name == "out_loop" and hasattr(self, 'out_socket_loop'): return self.out_socket_loop
-        if name == "out_end" and hasattr(self, 'out_socket_end'): return self.out_socket_end
-        return None
+        """Retrieves a socket by name."""
+        return self._sockets.get(name)
+
+    # Simplified access for common sockets (optional, for backward compatibility or convenience)
+    @property
+    def in_socket(self): return self.get_socket("in")
+    @property
+    def out_socket(self): return self.get_socket("out")
+    @property
+    def out_socket_true(self): return self.get_socket("out_true")
+    @property
+    def out_socket_false(self): return self.get_socket("out_false")
+    @property
+    def out_socket_loop(self): return self.get_socket("out_loop")
+    @property
+    def out_socket_end(self): return self.get_socket("out_end")
 
     def get_all_sockets(self):
-        sockets = []
-        if hasattr(self, 'in_socket'): sockets.append(self.in_socket)
-        if hasattr(self, 'out_socket'): sockets.append(self.out_socket)
-        if hasattr(self, 'out_socket_true'): sockets.append(self.out_socket_true)
-        if hasattr(self, 'out_socket_false'): sockets.append(self.out_socket_false)
-        if hasattr(self, 'out_socket_loop'): sockets.append(self.out_socket_loop)
-        if hasattr(self, 'out_socket_end'): sockets.append(self.out_socket_end)
-        return list(filter(None, sockets))
+        """Returns a list of all socket objects."""
+        return list(self._sockets.values())
 
     def get_output_sockets(self):
-        return [sock for sock in self.get_all_sockets() if sock.is_output]
+        """Returns a list of all output socket objects."""
+        return [sock for sock in self._sockets.values() if sock.is_output]
+
+    def get_input_sockets(self):
+        """Returns a list of all input socket objects."""
+        return [sock for sock in self._sockets.values() if not sock.is_output]
 
     def _create_sockets(self):
-        self.in_socket = None if isinstance(self, TriggerNode) else Socket(self, "in")
-        if self.in_socket: self.in_socket.setPos(self.width / 2, 0)
-        self.out_socket = Socket(self, "out", is_output=True);
-        self.out_socket.setPos(self.width / 2, self.height)
+        """Default socket creation for standard nodes."""
+        if not isinstance(self, TriggerNode): # Trigger has no input
+             self.add_socket("in", position=QPointF(self.width / 2, 0))
+        # Most nodes have a single output by default
+        if not isinstance(self, (ActivateOutputNode, DeactivateOutputNode, SendSMSNode, MacroOutputNode)):
+            self.add_socket("out", is_output=True, position=QPointF(self.width / 2, self.height))
 
     def _create_validation_indicator(self):
         self.error_icon = QGraphicsTextItem("⚠️", self)
@@ -236,68 +299,138 @@ class BaseNode(QGraphicsItem):
             self.rect.setPen(QPen(QColor("#fffc42"), 2) if value else QPen(Qt.GlobalColor.black, 1))
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             for socket in self.get_all_sockets():
-                for conn in socket.connections: conn.update_path()
+                # Check if connection list exists and socket is valid before iterating
+                if hasattr(socket, 'connections') and socket.scene():
+                    for conn in socket.connections:
+                         # Ensure connection is also valid before updating
+                         if conn and conn.scene():
+                              conn.update_path()
         return super().itemChange(change, value)
+
 
     def boundingRect(self):
         extra = 10
-        return QRectF(-extra, -extra, self.width + 2 * extra, self.height + 2 * extra)
+        # Adjust bounding rect if node height is different
+        rect_height = self.height if hasattr(self, 'height') else 85
+        return QRectF(-extra, -extra, self.width + 2 * extra, rect_height + 2 * extra)
 
     def paint(self, painter, option, widget):
-        pass
+        pass # Base class does not paint itself, children elements do
 
     def to_data(self):
-        return {'id': self.id, 'node_type': self.__class__.__name__, 'name': self.node_name,
+        # Зберігаємо ім'я класу
+        class_name = self.__class__.__name__
+        data = {'id': self.id, 'node_type': class_name, 'name': self.node_name,
                 'description': self.description, 'pos': (self.pos().x(), self.pos().y()),
                 'properties': self.properties}
+        # Add macro specific data if needed
+        if isinstance(self, MacroNode):
+            data['macro_id'] = self.macro_id
+        return data
 
     def to_xml(self, parent_element):
         return self.data_to_xml(parent_element, self.to_data())
 
     @staticmethod
     def data_from_xml(xml_element):
-        data = {'id': xml_element.get("id"), 'node_type': xml_element.get("type"),
+        # Читаємо атрибут 'type' як ім'я класу
+        node_class_name = xml_element.get("type")
+        data = {'id': xml_element.get("id"), 'node_type': node_class_name,
                 'name': xml_element.get("name"), 'pos': (float(xml_element.get("x")), float(xml_element.get("y"))),
                 'properties': []}
         desc_el = xml_element.find("description")
-        data['description'] = desc_el.text or "" if desc_el is not None else ""
+        data['description'] = desc_el.text if desc_el is not None else "" # Handle missing description
         props_el = xml_element.find("properties")
         if props_el is not None:
             for prop_el in props_el:
                 key, value = prop_el.get("key"), prop_el.get("value")
-                if key == 'zones': value = value.split(',') if value else []
+                if key == 'zones':
+                    value = value.split(',') if value else [] # Ensure list even if empty
+                elif key in ('seconds', 'count'):
+                    try:
+                        value = int(value) if value is not None else 0
+                    except (ValueError, TypeError):
+                         log.warning(f"Could not convert property '{key}' value '{value}' to int for node {data.get('id')}. Using default.")
+                         value = 0 # Or a suitable default for the specific property
                 data['properties'].append((key, value))
+        # Add macro specific data if needed
+        if node_class_name == 'MacroNode': # Перевіряємо за ім'ям класу
+            data['macro_id'] = xml_element.get('macro_id')
         return data
 
     @staticmethod
     def data_to_xml(parent_element, node_data):
-        node_el = ET.SubElement(parent_element, "node", id=node_data.get('id'), type=node_data.get('node_type'),
-                                name=node_data.get('name'), x=str(node_data.get('pos', [0, 0])[0]),
-                                y=str(node_data.get('pos', [0, 0])[1]))
+        # Ensure all attribute values are strings and handle potential None
+        attrs = {
+            'id': str(node_data.get('id', '')),
+            'type': str(node_data.get('node_type', '')), # Now saving class name
+            'name': str(node_data.get('name', '')),
+            'x': str(node_data.get('pos', [0, 0])[0]),
+            'y': str(node_data.get('pos', [0, 0])[1])
+        }
+        # Add macro specific attributes, ensuring it's a string
+        if node_data.get('node_type') == 'MacroNode': # Check against class name
+            attrs['macro_id'] = str(node_data.get('macro_id', ''))
+
+        node_el = ET.SubElement(parent_element, "node", **attrs)
+
         desc_el = ET.SubElement(node_el, "description");
-        desc_el.text = node_data.get('description')
-        if node_data.get('properties'):
+        # Ensure description is a string
+        desc_el.text = str(node_data.get('description', ''))
+
+        # Ensure 'properties' exists and is a list before iterating
+        properties = node_data.get('properties')
+        if properties and isinstance(properties, list):
             props_el = ET.SubElement(node_el, "properties")
-            for key, value in node_data['properties']:
-                if isinstance(value, list): value = ",".join(value) if value else ""
-                ET.SubElement(props_el, "property", key=key, value=str(value))
+            for prop_item in properties:
+                 # Check if prop_item is a tuple/list of size 2
+                 if isinstance(prop_item, (list, tuple)) and len(prop_item) == 2:
+                      key, value = prop_item
+                      prop_attrs = {
+                           "key": str(key) if key is not None else "",
+                           # Convert value to string, handle lists specifically
+                           "value": ",".join(map(str, value)) if isinstance(value, list) else str(value if value is not None else "")
+                      }
+                      ET.SubElement(props_el, "property", **prop_attrs)
+                 else:
+                      log.warning(f"Skipping invalid property item: {prop_item} for node {attrs.get('id')}")
+
         return node_el
+
 
     @classmethod
     def from_data(cls, data):
-        node_class_name = data.get('node_type')
-        node_class = BaseNode
+        node_class_name = data.get('node_type') # This is now the class name
+        node_class = BaseNode # Default fallback
+
+        # Find the class by iterating through registry values (classes)
         if node_class_name:
-            for reg_class in NODE_REGISTRY.values():
-                if reg_class.__name__ == node_class_name:
-                    node_class = reg_class
+            for registry_class in NODE_REGISTRY.values():
+                if registry_class.__name__ == node_class_name:
+                    node_class = registry_class
                     break
-        node = node_class()
-        node.id = data.get('id', generate_short_id()) # Використовуємо короткий ID
+            else: # If loop finished without break
+                 log.warning(f"Node class '{node_class_name}' not found in NODE_REGISTRY. Using BaseNode.")
+
+        # Create instance
+        node = node_class() # Call constructor specific to the class
+
+        # Set common attributes
+        node.id = data.get('id', generate_short_id())
+        # Use setters to ensure validation/updates if they exist
         node.node_name = data.get('name', '')
         node.description = data.get('description', '')
         node.setPos(QPointF(*data.get('pos', (0, 0))))
-        node.properties = data.get('properties', [])
+        # Ensure properties is a list
+        loaded_properties = data.get('properties', [])
+        node.properties = loaded_properties if isinstance(loaded_properties, list) else []
+
+        # Set specific attributes (like macro_id)
+        if isinstance(node, MacroNode):
+            node.macro_id = data.get('macro_id')
+            # TODO: Need to dynamically add sockets based on macro definition
+            # This requires access to the full project data, usually done after initial loading
+
         return node
 
 
@@ -305,10 +438,15 @@ class TriggerNode(BaseNode):
     ICON = "⚡"
 
     def __init__(self):
-        super().__init__("Тригер", "Тригер", QColor("#c0392b"), self.ICON)
-        if not self.properties:
-            self.properties.append(('trigger_type', 'Пожежа'))
-            self.properties.append(('zones', []))
+        # Pass the display name to super()
+        super().__init__(name="Тригер", node_type="Тригер", color=QColor("#c0392b"), icon=self.ICON)
+        # Initialize properties *after* super().__init__ has run
+        self.properties.append(('trigger_type', 'Пожежа'))
+        self.properties.append(('zones', []))
+
+    def _create_sockets(self):
+        # Override: Trigger only has an output
+        self.add_socket("out", is_output=True, position=QPointF(self.width / 2, self.height))
 
     def update_display_properties(self, config=None):
         props = dict(self.properties)
@@ -342,9 +480,12 @@ class ActivateOutputNode(BaseNode):
     ICON = "🔊"
 
     def __init__(self):
-        super().__init__("Активувати вихід", "Дія", QColor("#27ae60"), self.ICON)
-        if not self.properties:
-            self.properties.append(('output_id', ''))
+        super().__init__(name="Активувати вихід", node_type="Дія", color=QColor("#27ae60"), icon=self.ICON)
+        self.properties.append(('output_id', ''))
+
+    def _create_sockets(self):
+        # Override: Action nodes only have an input
+        self.add_socket("in", position=QPointF(self.width / 2, 0))
 
     def update_display_properties(self, config=None):
         props = dict(self.properties)
@@ -384,9 +525,12 @@ class DeactivateOutputNode(BaseNode):
     ICON = "🔇"
 
     def __init__(self):
-        super().__init__("Деактивувати вихід", "Дія", QColor("#e74c3c"), self.ICON)
-        if not self.properties:
-            self.properties.append(('output_id', ''))
+        super().__init__(name="Деактивувати вихід", node_type="Дія", color=QColor("#e74c3c"), icon=self.ICON)
+        self.properties.append(('output_id', ''))
+
+    def _create_sockets(self):
+        # Override: Action nodes only have an input
+        self.add_socket("in", position=QPointF(self.width / 2, 0))
 
     def update_display_properties(self, config=None):
         props = dict(self.properties)
@@ -426,9 +570,8 @@ class DelayNode(BaseNode):
     ICON = "⏳"
 
     def __init__(self):
-        super().__init__("Затримка", "Дія", QColor("#2980b9"), self.ICON)
-        if not self.properties:
-            self.properties.append(('seconds', 5))
+        super().__init__(name="Затримка", node_type="Дія", color=QColor("#2980b9"), icon=self.ICON)
+        self.properties.append(('seconds', 5))
 
     def update_display_properties(self, config=None):
         props = dict(self.properties)
@@ -440,10 +583,13 @@ class SendSMSNode(BaseNode):
     ICON = "✉️"
 
     def __init__(self):
-        super().__init__("Надіслати SMS", "Дія", QColor("#9b59b6"), self.ICON)
-        if not self.properties:
-            self.properties.append(('user_id', ''))
-            self.properties.append(('message', 'Тривога!'))
+        super().__init__(name="Надіслати SMS", node_type="Дія", color=QColor("#9b59b6"), icon=self.ICON)
+        self.properties.append(('user_id', ''))
+        self.properties.append(('message', 'Тривога!'))
+
+    def _create_sockets(self):
+        # Override: Action nodes only have an input
+        self.add_socket("in", position=QPointF(self.width / 2, 0))
 
     def update_display_properties(self, config=None):
         props = dict(self.properties)
@@ -480,33 +626,31 @@ class ConditionNodeZoneState(BaseNode):
     ICON = "🔎"
 
     def __init__(self):
-        super().__init__("Умова: Стан зони", "Умова", QColor("#f39c12"), self.ICON)
-        if not self.properties:
-            self.properties.append(('zone_id', ''))
-            self.properties.append(('state', 'Під охороною'))
+        super().__init__(name="Умова: Стан зони", node_type="Умова", color=QColor("#f39c12"), icon=self.ICON)
+        self.properties.append(('zone_id', ''))
+        self.properties.append(('state', 'Під охороною'))
 
     def _create_sockets(self):
-        self.in_socket = Socket(self, "in")
-        self.in_socket.setPos(self.width / 2, 0)
-
-        self.out_socket_true = Socket(self, "out_true", is_output=True)
-        self.out_socket_true.setPos(self.width * 0.25, self.height)
-
-        self.out_socket_false = Socket(self, "out_false", is_output=True)
-        self.out_socket_false.setPos(self.width * 0.75, self.height)
+        self.add_socket("in", position=QPointF(self.width / 2, 0))
+        self.add_socket("out_true", is_output=True, position=QPointF(self.width * 0.25, self.height))
+        self.add_socket("out_false", is_output=True, position=QPointF(self.width * 0.75, self.height))
 
         # Labels for sockets
-        self.true_label = QGraphicsTextItem("Успіх", self)
-        self.true_label.setDefaultTextColor(QColor("#aaffaa"))
-        self.true_label.setFont(QFont("Arial", 7))
-        self.true_label.setPos(self.out_socket_true.pos().x() - self.true_label.boundingRect().width() / 2,
-                               self.height - 14)
+        out_true_socket = self.get_socket("out_true")
+        if out_true_socket:
+            self.true_label = QGraphicsTextItem("Успіх", self)
+            self.true_label.setDefaultTextColor(QColor("#aaffaa"))
+            self.true_label.setFont(QFont("Arial", 7))
+            self.true_label.setPos(out_true_socket.pos().x() - self.true_label.boundingRect().width() / 2,
+                                   self.height - 14)
 
-        self.false_label = QGraphicsTextItem("Невдача", self)
-        self.false_label.setDefaultTextColor(QColor("#ffaaaa"))
-        self.false_label.setFont(QFont("Arial", 7))
-        self.false_label.setPos(self.out_socket_false.pos().x() - self.false_label.boundingRect().width() / 2,
-                                self.height - 14)
+        out_false_socket = self.get_socket("out_false")
+        if out_false_socket:
+            self.false_label = QGraphicsTextItem("Невдача", self)
+            self.false_label.setDefaultTextColor(QColor("#ffaaaa"))
+            self.false_label.setFont(QFont("Arial", 7))
+            self.false_label.setPos(out_false_socket.pos().x() - self.false_label.boundingRect().width() / 2,
+                                    self.height - 14)
 
     def update_display_properties(self, config=None):
         props = dict(self.properties)
@@ -539,10 +683,13 @@ class ConditionNodeZoneState(BaseNode):
                 self.set_validation_state(False, f"Зону з ID '{zone_id}' не знайдено.")
                 return False
 
-        if not self.out_socket_true.connections:
+        out_true_socket = self.get_socket("out_true")
+        out_false_socket = self.get_socket("out_false")
+
+        if not out_true_socket or not out_true_socket.connections:
             self.set_validation_state(False, "Вихід 'Успіх' повинен бути підключений.")
             return False
-        if not self.out_socket_false.connections:
+        if not out_false_socket or not out_false_socket.connections:
             self.set_validation_state(False, "Вихід 'Невдача' повинен бути підключений.")
             return False
 
@@ -554,7 +701,7 @@ class SequenceNode(BaseNode):
     ICON = "→"
 
     def __init__(self):
-        super().__init__("Послідовність", "Композитний", QColor("#1e824c"), self.ICON)
+        super().__init__(name="Послідовність", node_type="Композитний", color=QColor("#1e824c"), icon=self.ICON)
 
 
 class DecoratorNode(BaseNode):
@@ -566,32 +713,30 @@ class RepeatNode(DecoratorNode):
     ICON = "🔄"
 
     def __init__(self):
-        super().__init__("Повтор", "Декоратор", QColor("#8e44ad"), self.ICON)
-        if not self.properties:
-            self.properties.append(('count', 3))
+        super().__init__(name="Повтор", node_type="Декоратор", color=QColor("#8e44ad"), icon=self.ICON)
+        self.properties.append(('count', 3))
 
     def _create_sockets(self):
-        self.in_socket = Socket(self, "in")
-        self.in_socket.setPos(self.width / 2, 0)
-
-        self.out_socket_loop = Socket(self, "out_loop", is_output=True)
-        self.out_socket_loop.setPos(self.width * 0.25, self.height)
-
-        self.out_socket_end = Socket(self, "out_end", is_output=True)
-        self.out_socket_end.setPos(self.width * 0.75, self.height)
+        self.add_socket("in", position=QPointF(self.width / 2, 0))
+        self.add_socket("out_loop", is_output=True, position=QPointF(self.width * 0.25, self.height))
+        self.add_socket("out_end", is_output=True, position=QPointF(self.width * 0.75, self.height))
 
         # Labels for sockets
-        self.loop_label = QGraphicsTextItem("▶️", self)
-        self.loop_label.setFont(QFont("Arial", 10))
-        self.loop_label.setPos(self.out_socket_loop.pos().x() - self.loop_label.boundingRect().width() / 2,
-                               self.height - 18)
-        self.loop_label.setToolTip("Виконати")
+        out_loop_socket = self.get_socket("out_loop")
+        if out_loop_socket:
+            self.loop_label = QGraphicsTextItem("▶️", self)
+            self.loop_label.setFont(QFont("Arial", 10))
+            self.loop_label.setPos(out_loop_socket.pos().x() - self.loop_label.boundingRect().width() / 2,
+                                   self.height - 18)
+            self.loop_label.setToolTip("Виконати")
 
-        self.end_label = QGraphicsTextItem("⏹️", self)
-        self.end_label.setFont(QFont("Arial", 10))
-        self.end_label.setPos(self.out_socket_end.pos().x() - self.end_label.boundingRect().width() / 2,
-                              self.height - 18)
-        self.end_label.setToolTip("Завершити")
+        out_end_socket = self.get_socket("out_end")
+        if out_end_socket:
+            self.end_label = QGraphicsTextItem("⏹️", self)
+            self.end_label.setFont(QFont("Arial", 10))
+            self.end_label.setPos(out_end_socket.pos().x() - self.end_label.boundingRect().width() / 2,
+                                  self.height - 18)
+            self.end_label.setToolTip("Завершити")
 
     def update_display_properties(self, config=None):
         props = dict(self.properties)
@@ -612,11 +757,14 @@ class RepeatNode(DecoratorNode):
             return False
 
         # Then, validate its connections
-        if not self.out_socket_loop.connections:
+        out_loop_socket = self.get_socket("out_loop")
+        out_end_socket = self.get_socket("out_end")
+
+        if not out_loop_socket or not out_loop_socket.connections:
             self.set_validation_state(False, "Вихід 'Виконати' (▶️) повинен бути підключений.")
             return False
 
-        if not self.out_socket_end.connections:
+        if not out_end_socket or not out_end_socket.connections:
             self.set_validation_state(False, "Вихід 'Завершити' (⏹️) повинен бути підключений.")
             return False
 
@@ -625,7 +773,99 @@ class RepeatNode(DecoratorNode):
         return True
 
 
+# --- Нові класи для Макросів ---
+
+class MacroNode(BaseNode):
+    ICON = "🧩" # Значок для макроса
+
+    def __init__(self, macro_id=None, name="Макрос"):
+        # Передаємо display name "Макрос" у super()
+        super().__init__(name=name, node_type="Макрос", color=QColor("#7f8c8d"), icon=self.ICON) # Сірий колір
+        self.macro_id = macro_id # ID визначення макроса в project_data['macros']
+        # Сокети будуть додані динамічно пізніше
+
+    def _create_sockets(self):
+        # Поки що створимо стандартні, потім замінимо їх динамічно
+        self.add_socket("in", position=QPointF(self.width / 2, 0))
+        self.add_socket("out", is_output=True, position=QPointF(self.width / 2, self.height))
+
+    # TODO: Додати update_display_properties для відображення інфо про макрос?
+    # TODO: Додати validate - чи існує macro_id в проекті?
+
+
+class MacroInputNode(BaseNode):
+    ICON = "▶️" # Значок входу
+
+    def __init__(self, name="Вхід"):
+        # Використовуємо display name з NODE_REGISTRY для node_type
+        super().__init__(name=name, node_type="Вхід Макроса", color=QColor("#1abc9c"), icon=self.ICON) # Бірюзовий
+        self.height = 50 # Зробимо його меншим
+        self._create_elements() # Перестворюємо елементи з новою висотою
+        self._create_sockets() # Перестворюємо сокети з новою висотою
+
+    def _create_sockets(self):
+        # Тільки вихідний сокет
+        self.add_socket("out", is_output=True, position=QPointF(self.width / 2, self.height))
+
+    def _create_elements(self):
+        # Спрощений вигляд
+        self.rect = QGraphicsRectItem(0, 0, self.width, self.height, self)
+        self.rect.setBrush(self.node_color);
+        self.rect.setPen(QPen(Qt.GlobalColor.black, 1))
+
+        self.icon_text = QGraphicsTextItem(self.node_icon, self)
+        self.icon_text.setDefaultTextColor(Qt.GlobalColor.white);
+        self.icon_text.setFont(QFont("Arial", 16))
+        # Центрування іконки
+        icon_rect = self.icon_text.boundingRect()
+        self.icon_text.setPos((self.width - icon_rect.width()) / 2, (self.height - icon_rect.height()) / 2 - 5)
+
+        self.name_text = QGraphicsTextItem(self.node_name, self)
+        self.name_text.setDefaultTextColor(QColor("#f0f0f0"));
+        self.name_text.setFont(QFont("Arial", 9, QFont.Weight.Bold));
+        # Центрування назви під іконкою
+        name_rect = self.name_text.boundingRect()
+        self.name_text.setPos((self.width - name_rect.width()) / 2, self.height - name_rect.height() - 5)
+
+
+class MacroOutputNode(BaseNode):
+    ICON = "⏹️" # Значок виходу
+
+    def __init__(self, name="Вихід"):
+        # Використовуємо display name з NODE_REGISTRY для node_type
+        super().__init__(name=name, node_type="Вихід Макроса", color=QColor("#e67e22"), icon=self.ICON) # Помаранчевий
+        self.height = 50
+        self._create_elements()
+        self._create_sockets()
+
+    def _create_sockets(self):
+        # Тільки вхідний сокет
+        self.add_socket("in", position=QPointF(self.width / 2, 0))
+
+    def _create_elements(self):
+        # Спрощений вигляд, аналогічний входу
+        self.rect = QGraphicsRectItem(0, 0, self.width, self.height, self)
+        self.rect.setBrush(self.node_color);
+        self.rect.setPen(QPen(Qt.GlobalColor.black, 1))
+
+        self.icon_text = QGraphicsTextItem(self.node_icon, self)
+        self.icon_text.setDefaultTextColor(Qt.GlobalColor.white);
+        self.icon_text.setFont(QFont("Arial", 16))
+        icon_rect = self.icon_text.boundingRect()
+        self.icon_text.setPos((self.width - icon_rect.width()) / 2, (self.height - icon_rect.height()) / 2 - 5)
+
+        self.name_text = QGraphicsTextItem(self.node_name, self)
+        self.name_text.setDefaultTextColor(QColor("#f0f0f0"));
+        self.name_text.setFont(QFont("Arial", 9, QFont.Weight.Bold));
+        name_rect = self.name_text.boundingRect()
+        self.name_text.setPos((self.width - name_rect.width()) / 2, self.height - name_rect.height() - 5)
+
+
+# --- Кінець нових класів ---
+
+
 NODE_REGISTRY = {
+    # Existing nodes (Display Name -> Class)
     "Тригер": TriggerNode,
     "Активувати вихід": ActivateOutputNode,
     "Деактивувати вихід": DeactivateOutputNode,
@@ -634,7 +874,13 @@ NODE_REGISTRY = {
     "Затримка": DelayNode,
     "Повтор": RepeatNode,
     "Послідовність": SequenceNode,
+    "Макрос": MacroNode,
+    # Internal nodes need display names for consistency in from_data lookups via node_type
+    "Вхід Макроса": MacroInputNode,
+    "Вихід Макроса": MacroOutputNode,
 }
+
+# Видалено обернений словник NODE_TYPE_TO_DISPLAY_NAME
 
 
 class EditableTextItem(QGraphicsTextItem):
@@ -659,8 +905,9 @@ class EditableTextItem(QGraphicsTextItem):
 class CommentItem(QGraphicsItem):
     def __init__(self, text="Коментар", width=200, height=100, view=None):
         super().__init__()
-        self.id = generate_short_id() # Використовуємо короткий ID
+        self.id = generate_short_id() # Используем короткий ID
         self._width, self._height, self.view = width, height, view
+        self._text = text if text is not None else "" # Ensure string
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsMovable |
                       QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
                       QGraphicsItem.GraphicsItemFlag.ItemSendsScenePositionChanges)
@@ -669,7 +916,7 @@ class CommentItem(QGraphicsItem):
         self.rect.setBrush(QColor(255, 250, 170, 200))
         self.rect.setPen(QPen(QColor("#333333"), 1, Qt.PenStyle.DashLine))
 
-        self.text_item = EditableTextItem(text, self)
+        self.text_item = EditableTextItem(self._text, self)
         self.text_item.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.text_item.setPos(5, 5);
         self.text_item.setTextWidth(self._width - 10)
@@ -682,6 +929,17 @@ class CommentItem(QGraphicsItem):
         self.is_resizing = False
         self.start_resize_dims = None;
         self.start_mouse_pos = None
+
+    @property
+    def text(self):
+        # Always get the current text from the text_item
+        return self.text_item.toPlainText() if self.text_item else self._text
+
+    @text.setter
+    def text(self, value):
+        self._text = value if value is not None else ""
+        if self.text_item:
+            self.text_item.setPlainText(self._text)
 
     def get_contained_nodes(self):
         contained = []
@@ -697,7 +955,7 @@ class CommentItem(QGraphicsItem):
         return contained
 
     def boundingRect(self):
-        return QRectF(0, 0, self._width, self._height)
+        return QRectF(0, 0, self._width, self._height).adjusted(-1, -1, 1, 1)
 
     def paint(self, painter, option, widget):
         pass
@@ -748,7 +1006,7 @@ class CommentItem(QGraphicsItem):
     def to_data(self):
         return {
             'id': self.id,
-            'text': self.text_item.toPlainText(),
+            'text': self.text, # Use the property to get current text
             'pos': (self.pos().x(), self.pos().y()),
             'size': (self._width, self._height)
         }
@@ -758,22 +1016,28 @@ class CommentItem(QGraphicsItem):
 
     @staticmethod
     def data_from_xml(xml_element):
-        return {'id': xml_element.get("id"), 'text': xml_element.text or "",
+        return {'id': xml_element.get("id"),
+                'text': xml_element.text or "", # Get text content
                 'pos': (float(xml_element.get("x")), float(xml_element.get("y"))),
                 'size': (float(xml_element.get("width")), float(xml_element.get("height")))}
 
     @staticmethod
     def data_to_xml(parent_element, comment_data):
-        comment_el = ET.SubElement(parent_element, "comment", id=comment_data.get('id'),
-                                   x=str(comment_data.get('pos', [0, 0])[0]), y=str(comment_data.get('pos', [0, 0])[1]),
-                                   width=str(comment_data.get('size', [0, 0])[0]),
-                                   height=str(comment_data.get('size', [0, 0])[1]))
-        comment_el.text = comment_data.get('text')
+        attrs = {
+            'id': str(comment_data.get('id', '')),
+            'x': str(comment_data.get('pos', [0, 0])[0]),
+            'y': str(comment_data.get('pos', [0, 0])[1]),
+            'width': str(comment_data.get('size', [0, 0])[0]),
+            'height': str(comment_data.get('size', [0, 0])[1])
+        }
+        comment_el = ET.SubElement(parent_element, "comment", **attrs)
+        # Ensure text is a string
+        comment_el.text = str(comment_data.get('text', ''))
 
     @classmethod
     def from_data(cls, data, view):
         comment = cls(data['text'], data['size'][0], data['size'][1], view)
-        comment.id = data.get('id', generate_short_id()) # Використовуємо короткий ID
+        comment.id = data.get('id', generate_short_id()) # Используем короткий ID
         comment.setPos(QPointF(*data['pos']))
         return comment
 
@@ -781,13 +1045,14 @@ class CommentItem(QGraphicsItem):
 class FrameItem(QGraphicsItem):
     def __init__(self, text="Новая группа", width=300, height=200, view=None):
         super().__init__()
-        self.id = generate_short_id() # Використовуємо короткий ID
+        self.id = generate_short_id() # Используем короткий ID
         self._width, self._height, self.view = width, height, view
+        self._text = text if text is not None else "" # Ensure string
         self.header_height = 30
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsMovable |
                       QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
                       QGraphicsItem.GraphicsItemFlag.ItemSendsScenePositionChanges)
-        self.setZValue(-2)
+        self.setZValue(-2) # Ensure frame is behind nodes
         self.rect = QGraphicsRectItem(0, 0, self._width, self._height, self)
         self.rect.setBrush(QColor(80, 80, 80, 180))
         self.rect.setPen(QPen(QColor(118, 185, 237), 1, Qt.PenStyle.DashLine))
@@ -795,7 +1060,7 @@ class FrameItem(QGraphicsItem):
         self.header.setBrush(QColor(118, 185, 237))
         self.header.setPen(QPen(Qt.PenStyle.NoPen))
 
-        self.text_item = EditableTextItem(text, self)
+        self.text_item = EditableTextItem(self._text, self)
         self.text_item.setDefaultTextColor(Qt.GlobalColor.white)
         font = QFont("Arial", 10, QFont.Weight.Bold)
         self.text_item.setFont(font)
@@ -811,38 +1076,60 @@ class FrameItem(QGraphicsItem):
         self.is_resizing = False
         self.start_resize_dims = None
         self.start_mouse_pos = None
-        self._old_pos = None
+        self._contained_start_positions = {} # Store positions for moving contained items
+
+
+    @property
+    def text(self):
+        return self.text_item.toPlainText() if self.text_item else self._text
+
+    @text.setter
+    def text(self, value):
+        self._text = value if value is not None else ""
+        if self.text_item:
+            self.text_item.setPlainText(self._text)
 
     def get_contained_nodes(self):
+        """Finds items visually contained within the frame."""
         contained = []
         if not self.scene(): return contained
 
-        colliding_items = self.scene().collidingItems(self)
-        for item in colliding_items:
-            # Get the top-level item (node, comment, etc.)
-            p = item
-            while p and not isinstance(p, (BaseNode, CommentItem)):
-                p = p.parentItem()
+        # Get the frame's bounding rectangle in scene coordinates
+        frame_rect = self.sceneBoundingRect()
 
-            # Add to list if it's a valid, new item
-            if p and p not in contained:
-                contained.append(p)
+        # Check items whose bounding box *might* intersect (optimization)
+        potential_items = self.scene().items(frame_rect)
+
+        for item in potential_items:
+             # Check if the item's center is within the frame's boundaries
+             # Ensure item is a BaseNode or CommentItem and not the frame itself
+             if isinstance(item, (BaseNode, CommentItem)) and item is not self:
+                  item_center = item.sceneBoundingRect().center()
+                  # Check containment using the frame's *internal* rect (excluding potential selection outline)
+                  if frame_rect.contains(item_center):
+                       contained.append(item)
         return contained
 
+
     def boundingRect(self):
-        return QRectF(0, 0, self._width, self._height)
+        # Add a small margin for selection outline if needed
+        return QRectF(0, 0, self._width, self._height).adjusted(-1, -1, 1, 1)
+
 
     def paint(self, painter, option, widget):
-        pass
+        pass # Base class does not paint itself, children elements do
+
 
     def set_dimensions(self, width, height):
         self.prepareGeometryChange()
-        self._width, self._height = max(width, 100), max(height, 60)
+        self._width, self._height = max(width, 100), max(height, 60 + self.header_height) # Ensure min size allows for header
         self.rect.setRect(0, 0, self._width, self._height)
         self.header.setRect(0, 0, self._width, self.header_height)
         self.text_item.setTextWidth(self._width - 10)
         handle_size = self.resize_handle.rect().width()
         self.resize_handle.setPos(self._width - handle_size, self._height - handle_size)
+        self.update() # Ensure repaint after resize
+
 
     def mousePressEvent(self, event):
         if self.resize_handle.isUnderMouse():
@@ -851,6 +1138,8 @@ class FrameItem(QGraphicsItem):
             self.start_mouse_pos = event.scenePos()
             event.accept()
         else:
+            # Store initial positions of contained nodes before moving the frame
+            self._contained_start_positions = {node: node.pos() for node in self.get_contained_nodes()}
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -859,7 +1148,19 @@ class FrameItem(QGraphicsItem):
             self.set_dimensions(self.start_resize_dims[0] + delta.x(), self.start_resize_dims[1] + delta.y())
             event.accept()
         else:
-            super().mouseMoveEvent(event)
+            # Handle moving contained items along with the frame
+            old_pos = self.pos()
+            super().mouseMoveEvent(event) # Let the base class handle the move
+            new_pos = self.pos()
+            delta = new_pos - old_pos
+            if delta.manhattanLength() > 0:
+                 # Check if nodes are selected; if so, they are moved independently
+                 selected_items = self.scene().selectedItems() if self.scene() else []
+                 for node, start_pos in self._contained_start_positions.items():
+                     # Only move nodes not part of the current selection drag AND still inside the frame visually
+                     if node not in selected_items and self.sceneBoundingRect().contains(node.sceneBoundingRect().center()):
+                          node.setPos(node.pos() + delta)
+
 
     def mouseReleaseEvent(self, event):
         if self.is_resizing:
@@ -871,6 +1172,8 @@ class FrameItem(QGraphicsItem):
             self.start_mouse_pos = None
             event.accept()
         else:
+            # Clear stored positions after move is complete
+            self._contained_start_positions = {}
             super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event):
@@ -884,34 +1187,24 @@ class FrameItem(QGraphicsItem):
             cursor.select(QTextCursor.SelectionType.Document)
             self.text_item.setTextCursor(cursor)
         else:
+            # Allow entering macro on double click outside header? (Future)
             super().mouseDoubleClickEvent(event)
 
+
     def itemChange(self, change, value):
+        # Handle selection highlight
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedChange:
             pen = QPen(QColor("#fffc42"), 2, Qt.PenStyle.SolidLine) if value \
                 else QPen(QColor(118, 185, 237), 1, Qt.PenStyle.DashLine)
             self.rect.setPen(pen)
 
-        if self.scene():
-            if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
-                self._old_pos = self.pos()
-
-            if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
-                if self._old_pos is not None:
-                    new_pos = self.pos()
-                    delta = new_pos - self._old_pos
-                    if delta.manhattanLength() > 0:
-                        for child in self.get_contained_nodes():
-                            if not child.isSelected():
-                                child.setPos(child.pos() + delta)
-                    self._old_pos = None
-
         return super().itemChange(change, value)
+
 
     def to_data(self):
         return {
             'id': self.id,
-            'text': self.text_item.toPlainText(),
+            'text': self.text, # Use property
             'pos': (self.pos().x(), self.pos().y()),
             'size': (self._width, self._height)
         }
@@ -921,21 +1214,28 @@ class FrameItem(QGraphicsItem):
 
     @staticmethod
     def data_from_xml(xml_element):
-        return {'id': xml_element.get("id"), 'text': xml_element.text or "",
+        return {'id': xml_element.get("id"),
+                'text': xml_element.text or "", # Get text content
                 'pos': (float(xml_element.get("x")), float(xml_element.get("y"))),
                 'size': (float(xml_element.get("width")), float(xml_element.get("height")))}
 
     @staticmethod
     def data_to_xml(parent_element, frame_data):
-        frame_el = ET.SubElement(parent_element, "frame", id=frame_data.get('id'),
-                                 x=str(frame_data.get('pos', [0, 0])[0]), y=str(frame_data.get('pos', [0, 0])[1]),
-                                 width=str(frame_data.get('size', [0, 0])[0]),
-                                 height=str(frame_data.get('size', [0, 0])[1]))
-        frame_el.text = frame_data.get('text')
+        attrs = {
+            'id': str(frame_data.get('id', '')),
+            'x': str(frame_data.get('pos', [0, 0])[0]),
+            'y': str(frame_data.get('pos', [0, 0])[1]),
+            'width': str(frame_data.get('size', [0, 0])[0]),
+            'height': str(frame_data.get('size', [0, 0])[1])
+        }
+        frame_el = ET.SubElement(parent_element, "frame", **attrs)
+        # Ensure text is a string
+        frame_el.text = str(frame_data.get('text', ''))
 
     @classmethod
     def from_data(cls, data, view):
         frame = cls(data['text'], data['size'][0], data['size'][1], view)
-        frame.id = data.get('id', generate_short_id()) # Використовуємо короткий ID
+        frame.id = data.get('id', generate_short_id()) # Используем короткий ID
         frame.setPos(QPointF(*data['pos']))
         return frame
+

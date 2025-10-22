@@ -4,9 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c2ae79a1-7d45-483a-9cb3-10c6ce259a0d" name="Changes" comment="V1.4 Stable with added searching and dockers view">
+    <list default="true" id="c2ae79a1-7d45-483a-9cb3-10c6ce259a0d" name="Changes" comment="V1.5 Stable with 12-symb node`s ID">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/commands.py" beforeDir="false" afterPath="$PROJECT_DIR$/commands.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/main_window.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/nodes.py" beforeDir="false" afterPath="$PROJECT_DIR$/nodes.py" afterDir="false" />
     </list>
@@ -151,7 +150,15 @@
       <option name="project" value="LOCAL" />
       <updated>1761113310029</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="V1.5 Stable with 12-symb node`s ID">
+      <option name="closed" value="true" />
+      <created>1761114177618</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1761114177618</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -170,6 +177,7 @@
     <MESSAGE value="V1.2 Unstable with validator and visual simulator" />
     <MESSAGE value="V1.3 Stable with validator and visual simulator" />
     <MESSAGE value="V1.4 Stable with added searching and dockers view" />
-    <option name="LAST_COMMIT_MESSAGE" value="V1.4 Stable with added searching and dockers view" />
+    <MESSAGE value="V1.5 Stable with 12-symb node`s ID" />
+    <option name="LAST_COMMIT_MESSAGE" value="V1.5 Stable with 12-symb node`s ID" />
   </component>
 </project>
