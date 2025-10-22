@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import sys
 import logging
 from PyQt6.QtWidgets import QApplication
@@ -9,7 +10,8 @@ logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     filename='editor.log',
-    filemode='w' # 'w' - перезаписывать файл при каждом запуске, 'a' - дописывать
+    filemode='w', # 'w' - перезаписывать файл при каждом запуске, 'a' - дописывать
+    encoding='utf-8' # ИСПРАВЛЕНО: Явная установка кодировки UTF-8 для корректной записи кириллицы
 )
 
 # Создаем логгер для вывода в консоль
@@ -32,3 +34,4 @@ if __name__ == "__main__":
     except Exception as e:
         log.critical(f"Критическая ошибка в приложении: {e}", exc_info=True)
         sys.exit(1)
+

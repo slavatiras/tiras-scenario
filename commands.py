@@ -29,13 +29,13 @@ class AddNodeCommand(QUndoCommand):
 
 
 class AddNodeAndConnectCommand(QUndoCommand):
-    def __init__(self, scene, node_type_name, position, start_node_id, start_socket_is_output, parent=None):
+    def __init__(self, scene, node_type_name, position, start_node_id, start_socket_name, parent=None):
         super().__init__(parent)
         self.scene = scene
         self.node_type_name = node_type_name
         self.position = position
         self.start_node_id = start_node_id
-        self.start_socket_is_output = start_socket_is_output
+        self.start_socket_name = start_socket_name
 
         node_class = NODE_REGISTRY.get(node_type_name, BaseNode)
         self.new_node = node_class()
@@ -52,18 +52,25 @@ class AddNodeAndConnectCommand(QUndoCommand):
             self.setObsolete(True)
             return
 
-        start_socket = start_node.out_socket if self.start_socket_is_output else start_node.in_socket
-        end_socket = self.new_node.in_socket if self.start_socket_is_output else self.new_node.out_socket
+        start_socket = start_node.get_socket(self.start_socket_name)
+        end_socket = self.new_node.in_socket
 
         if not (start_socket and end_socket):
             self.setObsolete(True)
             return
 
+        # The new node should always be connected via its input socket
+        is_output_from_start = True  # This command is only triggered from output sockets
+
         if self.connection is None:
-            self.connection = Connection(start_socket, end_socket)
+            if is_output_from_start:
+                self.connection = Connection(start_socket, end_socket)
+            else:  # This case should not happen with the current UI logic
+                self.connection = Connection(end_socket, start_socket)
         else:
-            start_socket.add_connection(self.connection)
-            end_socket.add_connection(self.connection)
+            # Re-establish connections if they were broken during undo
+            self.connection.start_socket.add_connection(self.connection)
+            self.connection.end_socket.add_connection(self.connection)
 
         self.scene.addItem(self.connection)
         self.connection.update_path()
@@ -111,7 +118,8 @@ class ResizeCommand(QUndoCommand):
         self.item = item
         self.old_dims = old_dims
         self.new_dims = new_dims
-        item_type = "коментаря" if isinstance(item, CommentItem) else "фрейму" if isinstance(item, FrameItem) else "елемента"
+        item_type = "коментаря" if isinstance(item, CommentItem) else "фрейму" if isinstance(item,
+                                                                                             FrameItem) else "елемента"
         self.setText(f"Змінити розмір {item_type}")
 
     def redo(self):
@@ -124,40 +132,50 @@ class ResizeCommand(QUndoCommand):
 class AlignNodesCommand(QUndoCommand):
     def __init__(self, nodes, mode, parent=None):
         super().__init__(parent)
-        self.nodes = nodes
+        self.nodes = list(nodes)  # Make a copy
         self.mode = mode
-        self.old_positions = {node: node.pos() for node in nodes}
+        self.old_positions = {node: node.pos() for node in self.nodes}
         self.setText("Вирівняти вузли")
 
     def redo(self):
         if len(self.nodes) < 2:
             return
 
+        # Determine the target based on the mode
         if self.mode == 'left':
-            target_pos = min(node.scenePos().x() for node in self.nodes)
+            target_node = min(self.nodes, key=lambda n: n.sceneBoundingRect().left())
+            align_pos = target_node.sceneBoundingRect().left()
             for node in self.nodes:
-                node.setX(target_pos)
+                if node is not target_node:
+                    node.setX(align_pos)
         elif self.mode == 'right':
-            target_pos = max(node.sceneBoundingRect().right() for node in self.nodes)
+            target_node = max(self.nodes, key=lambda n: n.sceneBoundingRect().right())
+            align_pos = target_node.sceneBoundingRect().right()
             for node in self.nodes:
-                node.setX(target_pos - node.sceneBoundingRect().width())
+                if node is not target_node:
+                    node.setX(align_pos - node.sceneBoundingRect().width())
         elif self.mode == 'h_center':
-            avg_center = sum(node.sceneBoundingRect().center().x() for node in self.nodes) / len(self.nodes)
+            # Use the average of centers for horizontal alignment
+            avg_center_x = sum(n.sceneBoundingRect().center().x() for n in self.nodes) / len(self.nodes)
             for node in self.nodes:
-                node.setX(avg_center - node.sceneBoundingRect().width() / 2)
+                node.setX(avg_center_x - node.sceneBoundingRect().width() / 2)
         elif self.mode == 'top':
-            target_pos = min(node.scenePos().y() for node in self.nodes)
+            target_node = min(self.nodes, key=lambda n: n.sceneBoundingRect().top())
+            align_pos = target_node.sceneBoundingRect().top()
             for node in self.nodes:
-                node.setY(target_pos)
+                if node is not target_node:
+                    node.setY(align_pos)
         elif self.mode == 'bottom':
-            target_pos = max(node.sceneBoundingRect().bottom() for node in self.nodes)
+            target_node = max(self.nodes, key=lambda n: n.sceneBoundingRect().bottom())
+            align_pos = target_node.sceneBoundingRect().bottom()
             for node in self.nodes:
-                node.setY(target_pos - node.sceneBoundingRect().height())
+                if node is not target_node:
+                    node.setY(align_pos - node.sceneBoundingRect().height())
         elif self.mode == 'v_center':
-            avg_center = sum(node.sceneBoundingRect().center().y() for node in self.nodes) / len(self.nodes)
+            # Use the average of centers for vertical alignment
+            avg_center_y = sum(n.sceneBoundingRect().center().y() for n in self.nodes) / len(self.nodes)
             for node in self.nodes:
-                node.setY(avg_center - node.sceneBoundingRect().height() / 2)
-
+                node.setY(avg_center_y - node.sceneBoundingRect().height() / 2)
 
     def undo(self):
         for node, pos in self.old_positions.items():
@@ -175,8 +193,7 @@ class RemoveItemsCommand(QUndoCommand):
         nodes_to_remove = {item for item in items_to_remove if isinstance(item, BaseNode)}
 
         for node in nodes_to_remove:
-            sockets = filter(None, [node.in_socket, node.out_socket])
-            for socket in sockets:
+            for socket in node.get_all_sockets():
                 for conn in socket.connections:
                     items_to_remove.add(conn)
 
@@ -192,6 +209,7 @@ class RemoveItemsCommand(QUndoCommand):
                     self.items_data.append({
                         'type': 'connection', 'item': item,
                         'from_id': start_node.id,
+                        'from_socket_name': item.start_socket.socket_name,
                         'to_id': end_node.id
                     })
 
@@ -230,13 +248,16 @@ class RemoveItemsCommand(QUndoCommand):
                     to_node = next((i for i in self.scene.items() if isinstance(i, BaseNode) and i.id == data['to_id']),
                                    None)
 
-                if from_node and to_node and from_node.out_socket and to_node.in_socket:
-                    conn.start_socket = from_node.out_socket
-                    conn.end_socket = to_node.in_socket
-                    conn.start_socket.add_connection(conn)
-                    conn.end_socket.add_connection(conn)
-                    self.scene.addItem(conn)
-                    conn.update_path()
+                if from_node and to_node:
+                    start_socket = from_node.get_socket(data['from_socket_name'])
+                    end_socket = to_node.in_socket
+                    if start_socket and end_socket:
+                        conn.start_socket = start_socket
+                        conn.end_socket = end_socket
+                        conn.start_socket.add_connection(conn)
+                        conn.end_socket.add_connection(conn)
+                        self.scene.addItem(conn)
+                        conn.update_path()
 
 
 class MoveItemsCommand(QUndoCommand):
@@ -366,9 +387,13 @@ class PasteCommand(QUndoCommand):
                     conn_data = Connection.data_from_xml(conn_el)
                     from_node = new_nodes_map.get(old_to_new_id_map.get(conn_data['from_node']))
                     to_node = new_nodes_map.get(old_to_new_id_map.get(conn_data['to_node']))
-                    if from_node and to_node and from_node.out_socket and to_node.in_socket:
-                        conn = Connection(from_node.out_socket, to_node.in_socket)
-                        self.pasted_items.append(conn)
+
+                    if from_node and to_node:
+                        from_socket = from_node.get_socket(conn_data['from_socket'])
+                        to_socket = to_node.in_socket
+                        if from_socket and to_socket:
+                            conn = Connection(from_socket, to_socket)
+                            self.pasted_items.append(conn)
 
             main_window = self.scene.views()[0].parent()
             config = main_window.project_data.get('config')

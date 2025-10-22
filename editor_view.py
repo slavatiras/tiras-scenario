@@ -170,7 +170,8 @@ class EditorView(QGraphicsView):
         # Handle the end of our custom connection drawing.
         if self.start_socket and self.temp_line:
             start_node_id = self.start_socket.parentItem().id
-            start_socket_is_output = self.start_socket.is_output
+            start_socket_name = self.start_socket.socket_name
+
             end_socket = next(
                 (item for item in self.items(event.pos()) if isinstance(item, Socket) and item.is_highlighted),
                 None)
@@ -182,7 +183,7 @@ class EditorView(QGraphicsView):
             else:
                 item_at_pos = self.itemAt(event.pos())
                 if item_at_pos is None:
-                    self._show_add_node_menu_on_drag(event, start_node_id, start_socket_is_output)
+                    self._show_add_node_menu_on_drag(event, start_node_id, start_socket_name)
             self.temp_line, self.start_socket = None, None
             event.accept()
             return
@@ -201,7 +202,7 @@ class EditorView(QGraphicsView):
         self.moved_items.clear()
         self.moved_items_start_pos.clear()
 
-    def _show_add_node_menu_on_drag(self, event, start_node_id, start_socket_is_output):
+    def _show_add_node_menu_on_drag(self, event, start_node_id, start_socket_name):
         context_menu = QMenu(self)
         for node_name in sorted(NODE_REGISTRY.keys()):
             if NODE_REGISTRY[node_name] is TriggerNode: continue
@@ -211,16 +212,16 @@ class EditorView(QGraphicsView):
                                node_type_name=node_name,
                                view_pos=event.pos(),
                                start_node_id=start_node_id,
-                               start_socket_is_output=start_socket_is_output)
+                               start_socket_name=start_socket_name)
             action.triggered.connect(callback)
             context_menu.addAction(action)
         if context_menu.actions():
             context_menu.exec(self.mapToGlobal(event.pos()))
 
-    def _add_node_and_connect(self, node_type_name, view_pos, start_node_id, start_socket_is_output):
+    def _add_node_and_connect(self, node_type_name, view_pos, start_node_id, start_socket_name):
         scene_pos = self.mapToScene(view_pos)
         command = AddNodeAndConnectCommand(self.scene(), node_type_name, scene_pos, start_node_id,
-                                           start_socket_is_output)
+                                           start_socket_name)
         self.undo_stack.push(command)
 
     def _update_potential_connections_highlight(self, start_socket):
@@ -229,15 +230,23 @@ class EditorView(QGraphicsView):
             if not start_socket:
                 item.set_highlight(False);
                 continue
+
+            # A connection is valid if it's between an output and an input socket
             is_valid = item is not start_socket and item.is_output != start_socket.is_output
+
             if is_valid:
-                out_socket = start_socket if start_socket.is_output else item
-                in_socket = item if start_socket.is_output else start_socket
-                out_node = out_socket.parentItem()
-                if not out_node: continue
-                if len(in_socket.connections) > 0 or \
-                        (isinstance(out_node, (TriggerNode, DecoratorNode)) and len(out_socket.connections) > 0):
+                # An input socket can only have one connection
+                input_socket = item if not item.is_output else start_socket
+                if len(input_socket.connections) > 0:
                     is_valid = False
+
+                # Certain output sockets can also only have one connection
+                output_socket = item if item.is_output else start_socket
+                output_node = output_socket.parentItem()
+                if isinstance(output_node, (TriggerNode, DecoratorNode)):
+                    if len(output_socket.connections) > 0:
+                        is_valid = False
+
             item.set_highlight(is_valid)
 
     def wheelEvent(self, event):

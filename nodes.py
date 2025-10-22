@@ -44,22 +44,21 @@ class Connection(QGraphicsPathItem):
         if start_node and end_node:
             return {
                 'from_node': start_node.id,
+                'from_socket': self.start_socket.socket_name,
                 'to_node': end_node.id
             }
         return {}
 
     def to_xml(self, parent_element):
-        start_node = self.start_socket.parentItem()
-        end_node = self.end_socket.parentItem()
-        if start_node and end_node:
-            ET.SubElement(parent_element, "connection",
-                          from_node=start_node.id,
-                          to_node=end_node.id)
+        data = self.to_data()
+        if data:
+            ET.SubElement(parent_element, "connection", **data)
 
     @staticmethod
     def data_from_xml(xml_element):
         return {
             'from_node': xml_element.get("from_node"),
+            'from_socket': xml_element.get("from_socket", "out"),  # Fallback for old format
             'to_node': xml_element.get("to_node")
         }
 
@@ -71,13 +70,15 @@ class Connection(QGraphicsPathItem):
     def data_to_xml(parent_element, conn_data):
         ET.SubElement(parent_element, "connection",
                       from_node=conn_data.get('from_node', ''),
+                      from_socket=conn_data.get('from_socket', 'out'),
                       to_node=conn_data.get('to_node', ''))
 
 
 class Socket(QGraphicsEllipseItem):
-    def __init__(self, parent_node, is_output=False):
+    def __init__(self, parent_node, socket_name="in", is_output=False):
         super().__init__(-6, -6, 12, 12, parent_node)
         self.is_output, self.connections = is_output, []
+        self.socket_name = socket_name
         self.default_brush = QBrush(QColor("#d4d4d4"))
         self.hover_brush = QBrush(QColor("#77dd77"))
         self.is_highlighted = False
@@ -170,10 +171,32 @@ class BaseNode(QGraphicsItem):
         self.properties_text.setFont(QFont("Arial", 8))
         self.properties_text.setPos(8, 55)
 
+    def get_socket(self, name):
+        if name == "in" and hasattr(self, 'in_socket'): return self.in_socket
+        if name == "out" and hasattr(self, 'out_socket'): return self.out_socket
+        if name == "out_true" and hasattr(self, 'out_socket_true'): return self.out_socket_true
+        if name == "out_false" and hasattr(self, 'out_socket_false'): return self.out_socket_false
+        if name == "out_loop" and hasattr(self, 'out_socket_loop'): return self.out_socket_loop
+        if name == "out_end" and hasattr(self, 'out_socket_end'): return self.out_socket_end
+        return None
+
+    def get_all_sockets(self):
+        sockets = []
+        if hasattr(self, 'in_socket'): sockets.append(self.in_socket)
+        if hasattr(self, 'out_socket'): sockets.append(self.out_socket)
+        if hasattr(self, 'out_socket_true'): sockets.append(self.out_socket_true)
+        if hasattr(self, 'out_socket_false'): sockets.append(self.out_socket_false)
+        if hasattr(self, 'out_socket_loop'): sockets.append(self.out_socket_loop)
+        if hasattr(self, 'out_socket_end'): sockets.append(self.out_socket_end)
+        return list(filter(None, sockets))
+
+    def get_output_sockets(self):
+        return [sock for sock in self.get_all_sockets() if sock.is_output]
+
     def _create_sockets(self):
-        self.in_socket = None if isinstance(self, TriggerNode) else Socket(self)
+        self.in_socket = None if isinstance(self, TriggerNode) else Socket(self, "in")
         if self.in_socket: self.in_socket.setPos(self.width / 2, 0)
-        self.out_socket = Socket(self, is_output=True);
+        self.out_socket = Socket(self, "out", is_output=True);
         self.out_socket.setPos(self.width / 2, self.height)
 
     def _create_validation_indicator(self):
@@ -205,13 +228,12 @@ class BaseNode(QGraphicsItem):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedChange:
             self.rect.setPen(QPen(QColor("#fffc42"), 2) if value else QPen(Qt.GlobalColor.black, 1))
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
-            sockets = filter(None, [self.in_socket, self.out_socket])
-            for socket in sockets:
+            for socket in self.get_all_sockets():
                 for conn in socket.connections: conn.update_path()
         return super().itemChange(change, value)
 
     def boundingRect(self):
-        extra = self.out_socket.boundingRect().width() / 2 if hasattr(self, 'out_socket') else 0
+        extra = 10
         return QRectF(-extra, -extra, self.width + 2 * extra, self.height + 2 * extra)
 
     def paint(self, painter, option, widget):
@@ -456,6 +478,29 @@ class ConditionNodeZoneState(BaseNode):
             self.properties.append(('zone_id', ''))
             self.properties.append(('state', 'Під охороною'))
 
+    def _create_sockets(self):
+        self.in_socket = Socket(self, "in")
+        self.in_socket.setPos(self.width / 2, 0)
+
+        self.out_socket_true = Socket(self, "out_true", is_output=True)
+        self.out_socket_true.setPos(self.width * 0.25, self.height)
+
+        self.out_socket_false = Socket(self, "out_false", is_output=True)
+        self.out_socket_false.setPos(self.width * 0.75, self.height)
+
+        # Labels for sockets
+        self.true_label = QGraphicsTextItem("Успіх", self)
+        self.true_label.setDefaultTextColor(QColor("#aaffaa"))
+        self.true_label.setFont(QFont("Arial", 7))
+        self.true_label.setPos(self.out_socket_true.pos().x() - self.true_label.boundingRect().width() / 2,
+                               self.height - 14)
+
+        self.false_label = QGraphicsTextItem("Невдача", self)
+        self.false_label.setDefaultTextColor(QColor("#ffaaaa"))
+        self.false_label.setFont(QFont("Arial", 7))
+        self.false_label.setPos(self.out_socket_false.pos().x() - self.false_label.boundingRect().width() / 2,
+                                self.height - 14)
+
     def update_display_properties(self, config=None):
         props = dict(self.properties)
         zone_id = props.get('zone_id')
@@ -486,6 +531,14 @@ class ConditionNodeZoneState(BaseNode):
             if zone_id not in all_ids:
                 self.set_validation_state(False, f"Зону з ID '{zone_id}' не знайдено.")
                 return False
+
+        if not self.out_socket_true.connections:
+            self.set_validation_state(False, "Вихід 'Успіх' повинен бути підключений.")
+            return False
+        if not self.out_socket_false.connections:
+            self.set_validation_state(False, "Вихід 'Невдача' повинен бути підключений.")
+            return False
+
         self.set_validation_state(True)
         return True
 
@@ -510,6 +563,29 @@ class RepeatNode(DecoratorNode):
         if not self.properties:
             self.properties.append(('count', 3))
 
+    def _create_sockets(self):
+        self.in_socket = Socket(self, "in")
+        self.in_socket.setPos(self.width / 2, 0)
+
+        self.out_socket_loop = Socket(self, "out_loop", is_output=True)
+        self.out_socket_loop.setPos(self.width * 0.25, self.height)
+
+        self.out_socket_end = Socket(self, "out_end", is_output=True)
+        self.out_socket_end.setPos(self.width * 0.75, self.height)
+
+        # Labels for sockets
+        self.loop_label = QGraphicsTextItem("▶️", self)
+        self.loop_label.setFont(QFont("Arial", 10))
+        self.loop_label.setPos(self.out_socket_loop.pos().x() - self.loop_label.boundingRect().width() / 2,
+                               self.height - 18)
+        self.loop_label.setToolTip("Виконати")
+
+        self.end_label = QGraphicsTextItem("⏹️", self)
+        self.end_label.setFont(QFont("Arial", 10))
+        self.end_label.setPos(self.out_socket_end.pos().x() - self.end_label.boundingRect().width() / 2,
+                              self.height - 18)
+        self.end_label.setToolTip("Завершити")
+
     def update_display_properties(self, config=None):
         props = dict(self.properties)
         count = int(props.get('count', 0))
@@ -517,6 +593,7 @@ class RepeatNode(DecoratorNode):
         self.properties_text.setPlainText(text)
 
     def validate(self, config):
+        # First, validate the node's own properties
         props = dict(self.properties)
         try:
             count = int(props.get('count', 0))
@@ -526,6 +603,17 @@ class RepeatNode(DecoratorNode):
         except (ValueError, TypeError):
             self.set_validation_state(False, "Кількість повторів має бути числом.")
             return False
+
+        # Then, validate its connections
+        if not self.out_socket_loop.connections:
+            self.set_validation_state(False, "Вихід 'Виконати' (▶️) повинен бути підключений.")
+            return False
+
+        if not self.out_socket_end.connections:
+            self.set_validation_state(False, "Вихід 'Завершити' (⏹️) повинен бути підключений.")
+            return False
+
+        # If all checks pass
         self.set_validation_state(True)
         return True
 

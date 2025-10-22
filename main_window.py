@@ -1,5 +1,6 @@
 import sys
 import uuid
+import logging
 from lxml import etree as ET
 from PyQt6.QtWidgets import (
     QMainWindow, QGraphicsScene, QDockWidget, QListWidget, QWidget,
@@ -7,7 +8,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,
     QHeaderView, QHBoxLayout, QComboBox, QMessageBox, QListWidgetItem,
     QApplication, QToolBar, QTabWidget, QSpinBox, QGridLayout, QCheckBox,
-    QScrollArea
+    QScrollArea, QInputDialog
 )
 from PyQt6.QtGui import QColor, QAction, QUndoStack, QFont, QIcon
 from PyQt6.QtCore import Qt, QTimer
@@ -19,6 +20,8 @@ from commands import (AddNodeCommand, AddCommentCommand, RemoveItemsCommand,
                       ChangePropertiesCommand, PasteCommand)
 from editor_view import EditorView
 from simulator import ScenarioSimulator
+
+log = logging.getLogger(__name__)
 
 DEVICE_SPECS = {
     "MOUT8R": {"type": "Модуль релейних виходів", "outputs": 8, "zones": 0},
@@ -702,9 +705,13 @@ class MainWindow(QMainWindow):
             self.scene.addItem(node);
             nodes_map[node.id] = node
         for conn_data in scenario_data.get('connections', []):
-            start_node, end_node = nodes_map.get(conn_data['from_node']), nodes_map.get(conn_data['to_node'])
-            if start_node and end_node and start_node.out_socket and end_node.in_socket:
-                self.scene.addItem(Connection(start_node.out_socket, end_node.in_socket))
+            start_node = nodes_map.get(conn_data['from_node'])
+            end_node = nodes_map.get(conn_data['to_node'])
+            start_socket = start_node.get_socket(conn_data.get('from_socket', 'out'))
+            end_socket = end_node.get_socket('in') if end_node else None
+
+            if start_node and end_node and start_socket and end_socket:
+                self.scene.addItem(Connection(start_socket, end_socket))
         for comment_data in scenario_data.get('comments', []):
             self.scene.addItem(CommentItem.from_data(comment_data, self.view))
 
@@ -753,25 +760,32 @@ class MainWindow(QMainWindow):
         nodes_to_visit = [trigger_node]
         reachable_nodes.add(trigger_node)
 
-        while nodes_to_visit:
-            current_node = nodes_to_visit.pop(0)
-            if not current_node.out_socket: continue
-            for conn in current_node.out_socket.connections:
-                next_node = conn.end_socket.parentItem()
-                if isinstance(next_node, BaseNode) and next_node not in reachable_nodes:
-                    reachable_nodes.add(next_node)
-                    nodes_to_visit.append(next_node)
+        q = [trigger_node]
+        visited = {trigger_node}
+        while q:
+            current_node = q.pop(0)
+            for socket in current_node.get_output_sockets():
+                for conn in socket.connections:
+                    next_node = conn.end_socket.parentItem()
+                    if isinstance(next_node, BaseNode) and next_node not in visited:
+                        visited.add(next_node)
+                        q.append(next_node)
+
+        reachable_nodes = visited
 
         TERMINAL_NODE_TYPES = (ActivateOutputNode, DeactivateOutputNode, SendSMSNode)
 
         for node in all_nodes:
             if node not in reachable_nodes:
-                node.set_validation_state(False, "Узел недостижим от триггера.")
+                if not node.error_icon.isVisible():
+                    node.set_validation_state(False, "Узел недостижим от триггера.")
             elif not node.error_icon.isVisible():
                 is_terminal = isinstance(node, TERMINAL_NODE_TYPES)
-                has_output = node.out_socket and node.out_socket.connections
-                if not is_terminal and not has_output:
-                    node.set_validation_state(False, "Цепочка логики не завершена действием.")
+
+                # For non-condition nodes, check if they have any output connection
+                if not isinstance(node, ConditionNodeZoneState) and not is_terminal:
+                    if not any(sock.connections for sock in node.get_output_sockets()):
+                        node.set_validation_state(False, "Цепочка логики не завершена действием.")
 
     def _update_simulation_trigger_zones(self):
         self.sim_trigger_zone_combo.clear()
@@ -830,7 +844,7 @@ class MainWindow(QMainWindow):
     def step_simulation(self):
         self.simulator.step()
         if not self.simulator.is_running:
-            self.show_status_message("Симуляція завершена: досягнуто кінця гілки.", color="lime")
+            self.show_status_message("Симуляція завершена.", color="lime")
             self.stop_simulation()
         else:
             self.update_simulation_controls()
@@ -839,6 +853,25 @@ class MainWindow(QMainWindow):
         self.simulator.stop()
         self.view.set_interactive(True)
         self.update_simulation_controls()
+
+    def get_user_choice_for_condition(self, node):
+        props = dict(node.properties)
+        zone_id = props.get('zone_id')
+        zone_name = "Невідома зона"
+
+        all_zones, _ = self._get_all_zones_and_outputs_from_devices()
+        for z in all_zones:
+            if z['id'] == zone_id:
+                zone_name = f"'{z['parent_name']}: {z['name']}'"
+                break
+
+        items = ["Під охороною", "Знята з охорони", "Тривога"]
+        item, ok = QInputDialog.getItem(self, "Симуляція: Вузол 'Умова'",
+                                        f"Який поточний стан зони {zone_name}?",
+                                        items, 0, False)
+        if ok and item:
+            return item
+        return None
 
     def show_status_message(self, message, timeout=4000, color=None):
         style = f"color: {color};" if color else ""
@@ -875,76 +908,123 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(command)
 
     def _load_project_data_from_file(self, path):
+        log.debug(f"Attempting to load project from: {path}")
         try:
             root_xml = ET.parse(path).getroot()
             config_xml = root_xml.find("config")
             new_project_data = {'scenarios': {}, 'config': {'devices': [], 'users': []}}
+
             if config_xml is not None:
+                log.debug("Parsing <config> section...")
                 devices_xml = config_xml.find("devices")
                 if devices_xml is not None:
+                    log.debug("Parsing <devices>...")
                     for device_el in devices_xml:
-                        device_data = {'id': device_el.get('id'), 'name': device_el.get('name'),
+                        device_id = device_el.get('id')
+                        log.debug(f"Parsing device ID: {device_id}")
+                        device_data = {'id': device_id, 'name': device_el.get('name'),
                                        'type': device_el.get('type'), 'zones': [], 'outputs': []}
                         zones_xml = device_el.find('zones')
                         if zones_xml is not None:
-                            for zone_el in zones_xml: device_data['zones'].append(
-                                {'id': zone_el.get('id'), 'name': zone_el.get('name'),
-                                 'parent_name': device_data['name']})
+                            for zone_el in zones_xml:
+                                log.debug(f"  - Parsing zone ID: {zone_el.get('id')}")
+                                device_data['zones'].append(
+                                    {'id': zone_el.get('id'), 'name': zone_el.get('name'),
+                                     'parent_name': device_data['name']})
                         outputs_xml = device_el.find('outputs')
                         if outputs_xml is not None:
-                            for output_el in outputs_xml: device_data['outputs'].append(
-                                {'id': output_el.get('id'), 'name': output_el.get('name'),
-                                 'parent_name': device_data['name']})
+                            for output_el in outputs_xml:
+                                log.debug(f"  - Parsing output ID: {output_el.get('id')}")
+                                device_data['outputs'].append(
+                                    {'id': output_el.get('id'), 'name': output_el.get('name'),
+                                     'parent_name': device_data['name']})
                         new_project_data['config']['devices'].append(device_data)
+
                 users_xml = config_xml.find("users")
                 if users_xml is not None:
-                    for user_el in users_xml: new_project_data['config']['users'].append(
-                        {'id': user_el.get("id"), 'name': user_el.get("name"), 'phone': user_el.get("phone")})
+                    log.debug("Parsing <users>...")
+                    for user_el in users_xml:
+                        log.debug(f"Parsing user ID: {user_el.get('id')}")
+                        new_project_data['config']['users'].append(
+                            {'id': user_el.get("id"), 'name': user_el.get("name"), 'phone': user_el.get("phone")})
+
             scenarios_xml = root_xml.find("scenarios")
             if scenarios_xml is not None:
+                log.debug("Parsing <scenarios> section...")
                 for scenario_el in scenarios_xml:
                     scenario_id = scenario_el.get("id")
+                    log.debug(f"Parsing scenario ID: {scenario_id}")
                     if not scenario_id: continue
                     nodes_data, connections_data, comments_data = [], [], []
+
                     nodes_xml = scenario_el.find("nodes")
                     if nodes_xml is not None:
-                        for node_el in nodes_xml: nodes_data.append(BaseNode.data_from_xml(node_el))
+                        for node_el in nodes_xml:
+                            log.debug(f"  - Parsing node ID: {node_el.get('id')}")
+                            nodes_data.append(BaseNode.data_from_xml(node_el))
+
                     connections_xml = scenario_el.find("connections")
                     if connections_xml is not None:
-                        for conn_el in connections_xml: connections_data.append(Connection.data_from_xml(conn_el))
+                        for conn_el in connections_xml:
+                            log.debug(
+                                f"  - Parsing connection from: {conn_el.get('from_node')} to: {conn_el.get('to_node')}")
+                            connections_data.append(Connection.data_from_xml(conn_el))
+
                     comments_xml = scenario_el.find("comments")
                     if comments_xml is not None:
-                        for comment_el in comments_xml: comments_data.append(CommentItem.data_from_xml(comment_el))
+                        for comment_el in comments_xml:
+                            log.debug(f"  - Parsing comment ID: {comment_el.get('id')}")
+                            comments_data.append(CommentItem.data_from_xml(comment_el))
+
                     new_project_data['scenarios'][scenario_id] = {'nodes': nodes_data, 'connections': connections_data,
                                                                   'comments': comments_data}
+            log.debug("Successfully finished parsing XML file.")
             return new_project_data
         except Exception as e:
+            log.critical(f"Critical error while parsing XML file: {e}", exc_info=True)
             QMessageBox.critical(self, "Помилка читання файлу", f"Не вдалося прочитати дані з файлу:\n{e}")
             return None
 
     def import_project(self):
         path, _ = QFileDialog.getOpenFileName(self, "Імпорт проекту", "", "XML Files (*.xml)")
         if not path: return
+
+        log.info(f"Starting project import from: {path}")
         try:
             new_project_data = self._load_project_data_from_file(path)
-            if new_project_data is None: return
+            if new_project_data is None:
+                log.error("Failed to load project data, _load_project_data_from_file returned None.")
+                return
+
             self.project_data = new_project_data
             self.scene.clear()
             self.undo_stack.clear()
             self.scenarios_list.blockSignals(True)
             self.active_scenario_id = None
             self.current_selected_node = None
+
+            log.debug("Updating UI after import...")
             self.update_config_ui()
             self.update_scenarios_list()
             self.props_widget.setEnabled(False)
+
             scenario_keys = sorted(self.project_data.get('scenarios', {}).keys())
             if scenario_keys:
                 first_scenario_id = scenario_keys[0]
+                log.debug(f"Setting first scenario active: {first_scenario_id}")
                 items = self.scenarios_list.findItems(first_scenario_id, Qt.MatchFlag.MatchExactly)
                 if items: self.scenarios_list.setCurrentItem(items[0])
+
             self.scenarios_list.blockSignals(False)
+            # Manually trigger the scenario change to load the data
+            if self.scenarios_list.currentItem():
+                self.on_active_scenario_changed(self.scenarios_list.currentItem(), None)
+
             self.show_status_message(f"Проект успішно імпортовано з {path}", color="green")
+            log.info("Project imported successfully.")
+
         except Exception as e:
+            log.critical(f"An unhandled exception occurred during project import: {e}", exc_info=True)
             QMessageBox.critical(self, "Помилка імпорту", f"Не вдалося імпортувати проект:\n{e}")
             self.new_project()
 
