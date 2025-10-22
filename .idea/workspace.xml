@@ -4,10 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c2ae79a1-7d45-483a-9cb3-10c6ce259a0d" name="Changes" comment="V1.6 Alpha. Addded macros background">
+    <list default="true" id="c2ae79a1-7d45-483a-9cb3-10c6ce259a0d" name="Changes" comment="V1.7 Unstable. Crashed when macros in|out create">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/commands.py" beforeDir="false" afterPath="$PROJECT_DIR$/commands.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/editor_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/editor_view.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/main_window.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/nodes.py" beforeDir="false" afterPath="$PROJECT_DIR$/nodes.py" afterDir="false" />
     </list>
@@ -168,7 +166,15 @@
       <option name="project" value="LOCAL" />
       <updated>1761131347560</updated>
     </task>
-    <option name="localTasksCounter" value="9" />
+    <task id="LOCAL-00009" summary="V1.7 Unstable. Crashed when macros in|out create">
+      <option name="closed" value="true" />
+      <created>1761141261929</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1761141261929</updated>
+    </task>
+    <option name="localTasksCounter" value="10" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -189,6 +195,7 @@
     <MESSAGE value="V1.4 Stable with added searching and dockers view" />
     <MESSAGE value="V1.5 Stable with 12-symb node`s ID" />
     <MESSAGE value="V1.6 Alpha. Addded macros background" />
-    <option name="LAST_COMMIT_MESSAGE" value="V1.6 Alpha. Addded macros background" />
+    <MESSAGE value="V1.7 Unstable. Crashed when macros in|out create" />
+    <option name="LAST_COMMIT_MESSAGE" value="V1.7 Unstable. Crashed when macros in|out create" />
   </component>
 </project>

@@ -373,17 +373,10 @@ class BaseNode(QGraphicsItem):
 
     def _create_sockets(self):
         """Default socket creation for standard nodes."""
-        # --- Змінено: Перевірка типу НА ПОЧАТКУ ---
-        # Don't create default sockets for Macro Input/Output nodes
-        if isinstance(self, (MacroInputNode, MacroOutputNode)):
-             log.debug(f"_create_sockets skipped for {type(self).__name__} {self.id}")
-             return # Skip default creation for these types
-        # --- Кінець змін ---
-
         # Nodes that shouldn't have an input socket by default
-        no_input_nodes = (TriggerNode,) # Removed MacroInputNode
+        no_input_nodes = (TriggerNode, MacroInputNode)
         # Nodes that shouldn't have an output socket by default
-        no_output_nodes = (ActivateOutputNode, DeactivateOutputNode, SendSMSNode) # Removed MacroOutputNode
+        no_output_nodes = (ActivateOutputNode, DeactivateOutputNode, SendSMSNode, MacroOutputNode)
 
         log.debug(f"_create_sockets running for {type(self).__name__} {self.id}")
         if not isinstance(self, no_input_nodes):
@@ -998,18 +991,21 @@ class MacroNode(BaseNode):
             self.add_socket(name=socket_name, is_output=True, position=QPointF(self.width, y_pos), display_name=socket_name)
             log.debug(f"  Added output socket: '{socket_name}' at y={y_pos}")
 
-        self.update() # Оновлюємо вигляд вузла
+        self.update() # Оновлюємо вигляд
 
     def update_display_properties(self, config=None):
         # Показуємо ім'я макросу, до якого він прив'язаний
         macro_name = "Не визначено"
-        # Потрібен доступ до main_window або project_data
-        # Отримуємо main_window безпечно
         main_window = None
         if self.scene() and self.scene().views():
-             main_window = next((v.parent() for v in self.scene().views() if hasattr(v, 'parent') and callable(v.parent)), None)
+            view = self.scene().views()[0]
+            if hasattr(view, 'parent') and callable(view.parent):
+                parent_widget = view.parent()
+                # Проверяем, является ли родитель MainWindow
+                if 'main_window' in str(type(parent_widget)): # Не самый лучший способ, но работает
+                    main_window = parent_widget
 
-        if self.macro_id and main_window:
+        if self.macro_id and main_window and hasattr(main_window, 'project_data'):
               macro_def = main_window.project_data.get('macros', {}).get(self.macro_id)
               if macro_def:
                    macro_name = macro_def.get('name', 'Без імені')
@@ -1017,20 +1013,21 @@ class MacroNode(BaseNode):
 
 
     def validate(self, config):
-         # Перевіряємо, чи існує визначення макросу в проекті
          main_window = None
          if self.scene() and self.scene().views():
-              main_window = next((v.parent() for v in self.scene().views() if hasattr(v, 'parent') and callable(v.parent)), None)
+             view = self.scene().views()[0]
+             if hasattr(view, 'parent') and callable(view.parent):
+                 parent_widget = view.parent()
+                 if 'main_window' in str(type(parent_widget)):
+                     main_window = parent_widget
 
          if not self.macro_id:
               self.set_validation_state(False, "Макровузол не прив'язаний до визначення макросу (відсутній macro_id).")
               return False
-         elif not main_window or self.macro_id not in main_window.project_data.get('macros', {}):
+         elif not main_window or not hasattr(main_window, 'project_data') or self.macro_id not in main_window.project_data.get('macros', {}):
               self.set_validation_state(False, f"Визначення макросу з ID '{self.macro_id}' не знайдено в проекті.")
               return False
          else:
-             # TODO: Додаткова валідація? Чи відповідають сокети визначенню?
-             # Порівняти імена сокетів вузла з іменами в macro_data['inputs']/['outputs']
               macro_data = main_window.project_data['macros'][self.macro_id]
               defined_input_names = {inp['name'] for inp in macro_data.get('inputs', [])}
               defined_output_names = {out['name'] for out in macro_data.get('outputs', [])}
@@ -1039,17 +1036,15 @@ class MacroNode(BaseNode):
 
               if defined_input_names != current_input_names or defined_output_names != current_output_names:
                    log.warning(f"Sockets on MacroNode {self.id} do not match definition {self.macro_id}. Attempting update.")
-                   # Спробуємо оновити сокети автоматично
                    try:
                        self.update_sockets_from_definition(macro_data)
-                       # Повторно перевіряємо після оновлення
                        current_input_names = {sock.socket_name for sock in self.get_input_sockets()}
                        current_output_names = {sock.socket_name for sock in self.get_output_sockets()}
                        if defined_input_names != current_input_names or defined_output_names != current_output_names:
                            self.set_validation_state(False, "Невідповідність сокетів визначенню макросу (після спроби оновлення).")
                            return False
                        else:
-                            self.set_validation_state(True) # Успішно оновлено
+                            self.set_validation_state(True)
                             return True
                    except Exception as e:
                         log.error(f"Error auto-updating sockets for MacroNode {self.id}: {e}", exc_info=True)
@@ -1064,19 +1059,18 @@ class MacroInputNode(BaseNode):
     ICON = "▶️" # Значок входу
 
     def __init__(self, name="Вхід"):
-        log.debug(f"Initializing MacroInputNode with name: {name}") # Логування
-        # Використовуємо display name з NODE_REGISTRY для node_type
-        super().__init__(name=name, node_type="Вхід Макроса", color=QColor("#1abc9c"), icon=self.ICON) # Бірюзовий
-        self.height = 50 # Зробимо його меншим
-        self._create_elements() # Перестворюємо елементи з новою висотою
-        # Сокети створюються в _create_sockets базового класу (_init_ викликає _create_sockets)
-        # _create_sockets для цього класу додасть тільки 'out'
+        log.debug(f"Initializing MacroInputNode with name: {name}")
+        super().__init__(name=name, node_type="Вхід Макроса", color=QColor("#1abc9c"), icon=self.ICON)
+        self.height = 50
+        self._create_elements()
+        # --- ИСПРАВЛЕНО: Пересоздаем сокеты после изменения высоты ---
+        self.clear_sockets() # Удаляем сокеты, созданные BaseNode с неправильной высотой
+        self._create_sockets() # Создаем сокеты заново с правильной высотой
 
     def _create_sockets(self):
-        # Цей метод викликається конструктором BaseNode
-        # НЕ викликаємо clear_sockets або remove_socket
-        log.debug(f"MacroInputNode._create_sockets for {self.id}")
-        # Тільки вихідний сокет
+        # Этот метод вызывается из __init__ (и из super().__init__),
+        # поэтому он должен правильно работать с текущей высотой self.height
+        log.debug(f"MacroInputNode._create_sockets for {self.id} with height {getattr(self, 'height', 85)}")
         self.add_socket("out", is_output=True, position=QPointF(self.width / 2, self.height), display_name="Вихід")
 
     def _create_elements(self):
@@ -1104,19 +1098,18 @@ class MacroOutputNode(BaseNode):
     ICON = "⏹️" # Значок виходу
 
     def __init__(self, name="Вихід"):
-        log.debug(f"Initializing MacroOutputNode with name: {name}") # Логування
-        # Використовуємо display name з NODE_REGISTRY для node_type
+        log.debug(f"Initializing MacroOutputNode with name: {name}")
         super().__init__(name=name, node_type="Вихід Макроса", color=QColor("#e67e22"), icon=self.ICON) # Помаранчевий
         self.height = 50
         self._create_elements()
-        # НЕ викликаємо clear_sockets
-        # _create_sockets, викликаний з BaseNode, додасть 'in'
+        # --- ИСПРАВЛЕНО: Пересоздаем сокеты для консистентности, хотя здесь это не критично ---
+        self.clear_sockets()
+        self._create_sockets()
 
     def _create_sockets(self):
-        # Цей метод викликається конструктором BaseNode
         log.debug(f"MacroOutputNode._create_sockets for {self.id}")
-        # НЕ видаляємо 'out', бо BaseNode._create_sockets його не створить для цього типу
-        # Тільки вхідний сокет
+        # Входной сокет находится в y=0, поэтому изменение высоты на него не влияет,
+        # но для надежности лучше пересоздать.
         self.add_socket("in", position=QPointF(self.width / 2, 0), display_name="Вхід")
 
     def _create_elements(self):
@@ -1589,4 +1582,3 @@ class FrameItem(QGraphicsItem):
         frame.setPos(QPointF(*data.get('pos', (0,0))))
         frame.resize_handle.setVisible(False) # Сховати ручку спочатку
         return frame
-
