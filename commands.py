@@ -11,6 +11,9 @@ from PyQt6.QtWidgets import QInputDialog, QLineEdit
 from nodes import (BaseNode, Connection, CommentItem, FrameItem, TriggerNode, DecoratorNode, MacroNode,
                    MacroInputNode, MacroOutputNode, NODE_REGISTRY, generate_short_id)
 
+# --- ИСПРАВЛЕНО: Импортируем константы из нового файла ---
+from constants import EDIT_MODE_SCENARIO, EDIT_MODE_MACRO
+
 log = logging.getLogger(__name__) # Додано
 
 
@@ -321,18 +324,18 @@ class RemoveItemsCommand(QUndoCommand):
                     else:
                         log.warning(f"RemoveItemsCommand: Skipping invalid connection during data saving (obj: {item}).")
                         connections_to_remove_explicitly.add(item) # Mark for explicit removal
-                elif isinstance(item, (CommentItem, FrameItem)):
+                elif isinstance(item, CommentItem): # Handle CommentItem
                     item_data = item.to_data()
-                    item_type = 'container'
-                # Add other types if needed
+                    item_type = 'comment'
+                elif isinstance(item, FrameItem): # Handle FrameItem
+                    item_data = item.to_data()
+                    item_type = 'frame'
 
                 if item_type and item_data: # Only store if valid type and data
                     self.items_data.append({'type': item_type, 'data': item_data})
             except Exception as e:
                  log.error(f"Error calling to_data() for item {item}: {e}", exc_info=True)
-                 # Якщо to_data() падає, ми не можемо зберегти дані, але маємо видалити об'єкт
-                 # Можливо, позначити його для явного видалення без збереження?
-                 # Поки що пропускаємо збереження, redo все одно видалить об'єкт
+
 
         # Keep track of the actual item objects for removal in redo
         self.items_to_remove_objects = items_to_remove_set
@@ -355,7 +358,6 @@ class RemoveItemsCommand(QUndoCommand):
                         connections_removed.add(item)
                     except Exception as e:
                          log.error(f"Error removing connection {item} in redo: {e}", exc_info=True)
-                # else: log.debug(f" Connection {item} not on scene.")
 
         # Remove nodes and containers
         for item in self.items_to_remove_objects:
@@ -365,7 +367,6 @@ class RemoveItemsCommand(QUndoCommand):
                          self.scene.removeItem(item)
                      except Exception as e:
                          log.error(f"Error removing item {item} in redo: {e}", exc_info=True)
-                 # else: log.debug(f" Item {item} not on scene or already removed.")
 
         # Explicitly remove connections that were invalid during data saving
         for conn in self.connections_to_remove_explicitly:
@@ -386,8 +387,11 @@ class RemoveItemsCommand(QUndoCommand):
 
         # Get the view for creating Comment/Frame items
         view = self.scene.views()[0] if self.scene.views() else None
+        if not view:
+             log.error("RemoveItemsCommand undo: Cannot restore Comment/Frame items - view not found.")
+             # We can still try to restore nodes and connections
 
-        # Add nodes and containers back first
+        # Add nodes, comments, and frames back first
         for item_info in self.items_data:
             item_type = item_info['type']
             item_data = item_info['data']
@@ -397,36 +401,24 @@ class RemoveItemsCommand(QUndoCommand):
                 if item_type == 'node':
                     restored_item = BaseNode.from_data(item_data)
                     nodes_map[restored_item.id] = restored_item
-                elif item_type == 'container':
-                    # Використовуємо більш надійне визначення типу
-                    item_id = item_data.get('id', '') # ID може бути порожнім, якщо щось пішло не так
-                    # Спробуємо визначити за наявністю header_height (не дуже надійно) або за іменем
-                    # Краще додати поле 'container_type' в to_data
-                    if 'size' in item_data and isinstance(item_data['size'], (tuple, list)) and len(item_data['size']) == 2:
-                        # Евристика за текстом або можна додати тип в to_data()
-                        if item_data.get('text', '').startswith("Новая группа"): # Frame heuristic
-                             restored_item = FrameItem.from_data(item_data, view)
-                        else: # Assume Comment
-                             restored_item = CommentItem.from_data(item_data, view)
-                    else:
-                        log.warning(f" Invalid/missing size data for container: {item_data}")
-
+                elif item_type == 'comment' and view:
+                    restored_item = CommentItem.from_data(item_data, view)
+                elif item_type == 'frame' and view:
+                     restored_item = FrameItem.from_data(item_data, view)
 
                 if restored_item:
-                     # Add item only if it's not already on the scene (e.g., from a partial undo)
-                     existing_item = next((i for i in self.scene.items() if hasattr(i, 'id') and i.id == restored_item.id), None)
+                     item_id = getattr(restored_item, 'id', None)
+                     existing_item = next((i for i in self.scene.items() if hasattr(i, 'id') and i.id == item_id), None) if item_id else None
                      if not existing_item:
                           self.scene.addItem(restored_item)
                      elif existing_item != restored_item:
-                          log.warning(f"Item {restored_item.id} already exists on scene, but is a different object during undo. Replacing.")
+                          log.warning(f"Item {item_id} already exists on scene during undo. Replacing.")
                           self.scene.removeItem(existing_item)
                           self.scene.addItem(restored_item)
+                          if item_type == 'node': nodes_map[item_id] = restored_item # Update map if replaced
 
                      # Use frozenset for dictionary key
                      created_items_map[frozenset(item_data.items())] = restored_item
-                     # log.debug(f" Restored {item_type}: {restored_item.id if hasattr(restored_item, 'id') else restored_item}")
-                # else:
-                    # log.error(f" Failed to restore item from data: {item_data}") # Reduced verbosity
 
             except Exception as e:
                  log.error(f" Error restoring item {item_type} from data {item_data}: {e}", exc_info=True)
@@ -436,12 +428,20 @@ class RemoveItemsCommand(QUndoCommand):
         for item_info in self.items_data:
             if item_info['type'] == 'connection':
                 conn_data = item_info['data']
-                from_node = nodes_map.get(conn_data['from_node'])
-                to_node = nodes_map.get(conn_data['to_node'])
+                from_node_id = conn_data.get('from_node')
+                to_node_id = conn_data.get('to_node')
+
+                # Ensure IDs exist before proceeding
+                if not from_node_id or not to_node_id:
+                     log.warning(f"RemoveItemsCommand undo: Skipping connection restore due to missing node ID: {conn_data}")
+                     continue
+
+                from_node = nodes_map.get(from_node_id)
+                to_node = nodes_map.get(to_node_id)
 
                 # Try finding nodes on scene if not in restored map (maybe they weren't removed)
-                if not from_node: from_node = next((item for item in self.scene.items() if isinstance(item, BaseNode) and item.id == conn_data['from_node']), None)
-                if not to_node: to_node = next((item for item in self.scene.items() if isinstance(item, BaseNode) and item.id == conn_data['to_node']), None)
+                if not from_node: from_node = next((item for item in self.scene.items() if isinstance(item, BaseNode) and item.id == from_node_id), None)
+                if not to_node: to_node = next((item for item in self.scene.items() if isinstance(item, BaseNode) and item.id == to_node_id), None)
 
 
                 if from_node and to_node:
@@ -450,25 +450,16 @@ class RemoveItemsCommand(QUndoCommand):
                     end_socket = to_node.get_socket(to_socket_name)
 
                     if start_socket and end_socket:
-                        # Check if this connection already exists
-                        already_exists = False
-                        for existing_conn in start_socket.connections:
-                            if existing_conn.end_socket == end_socket:
-                                already_exists = True
-                                break
+                        already_exists = any(existing_conn.end_socket == end_socket for existing_conn in start_socket.connections)
                         if not already_exists:
                             try:
                                 conn = Connection(start_socket, end_socket)
                                 self.scene.addItem(conn)
-                                # Use frozenset for dictionary key
                                 created_items_map[frozenset(conn_data.items())] = conn
                             except Exception as e:
                                 log.error(f"Error creating/adding connection in undo: {e}", exc_info=True)
-
-                        # else: log.debug(f" Connection already exists: {from_node.id} -> {to_node.id}")
-
-                    # else: log.warning(f"RemoveItemsCommand undo: Could not find sockets for connection {conn_data}")
-                # else: log.warning(f"RemoveItemsCommand undo: Could not find nodes for connection {conn_data}")
+                    else: log.warning(f"RemoveItemsCommand undo: Could not find sockets for connection {conn_data}")
+                else: log.warning(f"RemoveItemsCommand undo: Could not find nodes for connection {conn_data}")
 
 
 class MoveItemsCommand(QUndoCommand):
@@ -514,16 +505,13 @@ class AddConnectionCommand(QUndoCommand):
         # Додаємо перевірку, що батьківські вузли існують
         if not start_node or not end_node:
             log.error("AddConnectionCommand init: Invalid start or end node for sockets.")
-            # Відміняємо створення команди
-            # Це не стандартний спосіб, але спробуємо так
-            # Краще б перевіряти це перед створенням команди в EditorView
             self.start_socket_ref = None
             self.end_socket_ref = None
         else:
             self.start_socket_ref = {'node_id': start_node.id, 'socket_name': start_socket.socket_name}
             self.end_socket_ref = {'node_id': end_node.id, 'socket_name': end_socket.socket_name}
 
-        self.connection_id = None # ID буде присвоєно самому Connection при створенні, тут не зберігаємо
+        self.connection_id = None
         self.connection = None # Connection object created in redo
         self.setText("Додати з'єднання")
         log.debug(f"AddConnectionCommand initialized: {self.start_socket_ref} -> {self.end_socket_ref}")
@@ -531,17 +519,14 @@ class AddConnectionCommand(QUndoCommand):
 
     def _find_socket(self, ref):
         """Helper to find socket by reference, returns None if not found."""
-        if not self.scene or not ref: return None # Додано перевірку ref
+        if not self.scene or not ref: return None
         node = next((item for item in self.scene.items() if isinstance(item, BaseNode) and item.id == ref['node_id']), None)
         if node:
             socket = node.get_socket(ref['socket_name'])
-            # if not socket: log.warning(f"AddConnectionCommand: Socket '{ref['socket_name']}' not found on node {ref['node_id']}.")
             return socket
-        # log.warning(f"AddConnectionCommand: Node {ref['node_id']} not found during socket lookup.")
         return None
 
     def redo(self):
-        # Перевірка, чи команда валідна
         if not self.start_socket_ref or not self.end_socket_ref:
             log.error("AddConnectionCommand redo: Command initialized with invalid socket refs.")
             self.setObsolete(True)
@@ -560,49 +545,30 @@ class AddConnectionCommand(QUndoCommand):
             self.setObsolete(True)
             return
 
-        try: # Обгортаємо всю логіку redo в try-except
+        try:
             log.debug("AddConnectionCommand redo: Validating connection...")
-            # Валідація: Чи можна з'єднувати ці сокети?
             if start_socket.is_output == end_socket.is_output:
-                 log.error("AddConnectionCommand redo: Invalid connection direction (output->output or input->input). Command obsolete.")
+                 log.error("AddConnectionCommand redo: Invalid connection direction. Command obsolete.")
                  self.setObsolete(True)
                  return
-            # Гарантуємо, що start_socket - це вихід (важливо для подальших перевірок)
-            if not start_socket.is_output:
-                log.debug("  Swapping start/end sockets as start was input.")
+            if not start_socket.is_output: # Ensure start is output
                 start_socket, end_socket = end_socket, start_socket
-                # Оновлюємо refs, якщо ми їх перевернули
                 self.start_socket_ref, self.end_socket_ref = self.end_socket_ref, self.start_socket_ref
 
-
-            # Перевірка: чи вхідний сокет вже зайнятий?
             log.debug(f"  Checking input socket {end_socket.socket_name} on {end_socket.parent_node.id}. Connections: {len(end_socket.connections)}")
-            if len(end_socket.connections) > 0:
-                 # Перевіряємо, чи це не те саме з'єднання, яке ми намагаємося відновити
-                 is_self_connection = self.connection and self.connection in end_socket.connections
-                 if not is_self_connection:
-                      log.error("AddConnectionCommand redo: Input socket already has a connection. Command obsolete.")
-                      self.setObsolete(True)
-                      return
-                 else:
-                      log.debug("  Input socket check passed (restoring self).")
+            if len(end_socket.connections) > 0 and not (self.connection and self.connection in end_socket.connections):
+                 log.error("AddConnectionCommand redo: Input socket already has a connection. Command obsolete.")
+                 self.setObsolete(True)
+                 return
 
-
-            # Перевірка: чи вихідний сокет на Trigger/Decorator вже зайнятий (якщо це 'out', 'out_loop', 'out_end')?
             output_node = start_socket.parentItem()
             log.debug(f"  Checking output socket {start_socket.socket_name} on {output_node.id} ({type(output_node).__name__}). Connections: {len(start_socket.connections)}")
             if isinstance(output_node, (TriggerNode, DecoratorNode)):
-                 # Перевіряємо тільки сокети, що можуть мати лише одне з'єднання
-                 restricted_sockets = ('out', 'out_loop', 'out_end') # У TriggerNode є 'out', у Decorator - 'out_loop'/'out_end'
-                 if start_socket.socket_name in restricted_sockets and len(start_socket.connections) > 0:
-                      is_self_connection = self.connection and self.connection in start_socket.connections
-                      if not is_self_connection:
-                           log.error(f"AddConnectionCommand redo: Output socket {start_socket.socket_name} on {type(output_node).__name__} already has a connection. Command obsolete.")
-                           self.setObsolete(True)
-                           return
-                      else:
-                           log.debug("  Output socket check passed (restoring self).")
-
+                 restricted_sockets = ('out', 'out_loop', 'out_end')
+                 if start_socket.socket_name in restricted_sockets and len(start_socket.connections) > 0 and not (self.connection and self.connection in start_socket.connections):
+                      log.error(f"AddConnectionCommand redo: Output socket {start_socket.socket_name} on {type(output_node).__name__} already has a connection. Command obsolete.")
+                      self.setObsolete(True)
+                      return
 
             log.debug("AddConnectionCommand redo: Creating/Restoring connection object...")
             if self.connection is None:
@@ -610,10 +576,8 @@ class AddConnectionCommand(QUndoCommand):
                 self.connection = Connection(start_socket, end_socket)
             else:
                 log.debug(f"  Restoring existing Connection: {start_socket.socket_name} ({start_socket.parent_node.id}) -> {end_socket.socket_name} ({end_socket.parent_node.id})")
-                # Re-establish potentially broken links after undo/redo cycles
                 self.connection.start_socket = start_socket
                 self.connection.end_socket = end_socket
-                # Додаємо з'єднання до сокетів тільки якщо їх там ще немає
                 if self.connection not in start_socket.connections:
                      log.debug(f"  Adding connection back to start socket {start_socket.socket_name}")
                      start_socket.add_connection(self.connection)
@@ -623,20 +587,17 @@ class AddConnectionCommand(QUndoCommand):
 
 
             log.debug("AddConnectionCommand redo: Adding connection to scene...")
-            if self.connection.scene() != self.scene: # Add only if not already on scene
+            if self.connection.scene() != self.scene:
                 self.scene.addItem(self.connection)
 
             log.debug("AddConnectionCommand redo: Updating connection path...")
             self.connection.update_path()
             self.scene.clearSelection()
-            # Не виділяємо з'єднання після створення, це може бути незручно
-            # self.connection.setSelected(True)
             log.debug("AddConnectionCommand redo: Finished successfully.")
 
         except Exception as e:
              log.error(f"AddConnectionCommand redo: Unexpected error: {e}", exc_info=True)
              self.setObsolete(True)
-             # Спробуємо безпечно видалити щойно створене з'єднання, якщо воно додалося
              if self.connection and self.connection.scene() == self.scene:
                   log.debug("  Attempting to remove partially added connection due to error.")
                   if self.connection.start_socket: self.connection.start_socket.remove_connection(self.connection)
@@ -646,7 +607,6 @@ class AddConnectionCommand(QUndoCommand):
 
     def undo(self):
         log.debug("AddConnectionCommand undo: Starting...")
-        # Знаходимо сокети, використовуючи посилання, що могли бути перевернуті в redo
         start_socket = self._find_socket(self.start_socket_ref)
         end_socket = self._find_socket(self.end_socket_ref)
         connection_to_remove = None
@@ -654,45 +614,30 @@ class AddConnectionCommand(QUndoCommand):
         log.debug(f"  Undo: Start socket found: {start_socket is not None}")
         log.debug(f"  Undo: End socket found: {end_socket is not None}")
 
-
-        # Знаходимо об'єкт Connection на сцені АБО через збережене посилання self.connection
         if self.connection:
-             # Перевіряємо, чи збігаються сокети збереженого з'єднання з поточними
              if self.connection.start_socket == start_socket and self.connection.end_socket == end_socket:
                   connection_to_remove = self.connection
                   log.debug("  Undo: Found connection using self.connection reference.")
              else:
                   log.warning("  Undo: self.connection sockets do not match found sockets. Searching on scene...")
-                  # Спробуємо знайти на сцені, якщо посилання застаріли
                   if start_socket:
                        connection_to_remove = next((conn for conn in start_socket.connections if conn.end_socket == end_socket), None)
 
-
-        # Якщо не знайшли через self.connection, шукаємо на сцені
         if not connection_to_remove and start_socket:
              log.debug("  Undo: Searching for connection via start_socket...")
              connection_to_remove = next((conn for conn in start_socket.connections if conn.end_socket == end_socket), None)
-        if not connection_to_remove and end_socket: # Якщо напрямок був інший (хоча redo мав це виправити)
-             log.debug("  Undo: Searching for connection via end_socket (reverse)...")
-             connection_to_remove = next((conn for conn in end_socket.connections if conn.start_socket == start_socket), None)
 
-
-        # Видаляємо з'єднання
         if connection_to_remove:
             log.debug(f"  Undo: Found connection to remove: {connection_to_remove}")
             start_sock = connection_to_remove.start_socket
             end_sock = connection_to_remove.end_socket
-            # Спочатку видаляємо посилання з сокетів
             log.debug(f"  Undo: Removing connection from sockets {start_sock.socket_name if start_sock else '?'} and {end_sock.socket_name if end_sock else '?'}")
             if start_sock: start_sock.remove_connection(connection_to_remove)
             if end_sock: end_sock.remove_connection(connection_to_remove)
-            # Потім видаляємо зі сцени
             if connection_to_remove.scene() == self.scene:
                 log.debug("  Undo: Removing connection from scene.")
                 self.scene.removeItem(connection_to_remove)
-            # self.connection = None # Не скидаємо self.connection, він потрібен для redo
         else:
-             # Якщо з'єднання не знайдено (можливо, вже видалено іншою командою)
              log.warning("AddConnectionCommand undo: Connection object not found on scene or sockets invalid.")
 
         log.debug("AddConnectionCommand undo: Finished.")
@@ -701,13 +646,13 @@ class AddConnectionCommand(QUndoCommand):
 class ChangePropertiesCommand(QUndoCommand):
     def __init__(self, node, old_data, new_data, parent=None):
         super().__init__(parent)
-        # self.node = node # Не зберігаємо пряме посилання
-        # Store node ID in case the object gets deleted/recreated
         self.node_id = node.id
-        self.scene = node.scene() # Зберігаємо сцену
+        self.scene = node.scene()
         self.old_data = deepcopy(old_data) # Глибоке копіювання
         self.new_data = deepcopy(new_data) # Глибоке копіювання
         self.setText("Змінити властивості")
+        self.main_window = next((v.parent() for v in self.scene.views() if hasattr(v, 'parent') and callable(v.parent)), None)
+
 
     def _find_node(self):
          """Finds the node on the scene by ID."""
@@ -724,21 +669,29 @@ class ChangePropertiesCommand(QUndoCommand):
         # Застосовуємо дані
         node.node_name = data['name']
         node.description = data['desc']
-        # Переконуємось, що властивості копіюються, а не присвоюються за посиланням
-        node.properties = list(data['props']) # Створюємо новий список
+        # Ensure properties are copied
+        node.properties = list(data['props']) # Create new list
         # Apply macro_id if present
         if 'macro_id' in data and hasattr(node, 'macro_id'):
-             node.macro_id = data['macro_id']
+             # Check if macro_id actually changed
+             if node.macro_id != data['macro_id']:
+                  node.macro_id = data['macro_id']
+                  # Update sockets if it's a MacroNode and macro_id changed
+                  if isinstance(node, MacroNode) and self.main_window:
+                       new_macro_data = self.main_window.project_data.get('macros', {}).get(node.macro_id)
+                       if new_macro_data:
+                            node.update_sockets_from_definition(new_macro_data)
+                       else: # Macro definition not found (or cleared)
+                            node.clear_sockets() # Or set to default? Clear is safer.
+
 
         # Update display and potentially UI
-        main_window = next((v.parent() for v in node.scene().views() if hasattr(v, 'parent') and callable(v.parent)), None)
-        if main_window:
-            config = main_window.project_data.get('config')
+        if self.main_window:
+            config = self.main_window.project_data.get('config')
             node.update_display_properties(config)
             # Update properties panel if this node is selected
-            if main_window.current_selected_node == node:
-                # Потрібно оновити UI панелі властивостей
-                main_window._update_properties_panel_ui() # Викликаємо приватний метод оновлення
+            if self.main_window.current_selected_node == node:
+                self.main_window._update_properties_panel_ui() # Trigger UI update
         else:
             log.warning("ChangePropertiesCommand: Could not find MainWindow.")
 
@@ -748,14 +701,15 @@ class ChangePropertiesCommand(QUndoCommand):
 
 
 class PasteCommand(QUndoCommand):
-    def __init__(self, scene, clipboard_text, position, parent=None):
+    def __init__(self, scene, clipboard_text, position, view, current_edit_mode, parent=None):
         super().__init__(parent)
         self.scene = scene
+        self.view = view # Needed for Comment/Frame creation
         self.clipboard_text = clipboard_text
         self.position = position
+        self.current_edit_mode = current_edit_mode # Store edit mode
         self.pasted_items_data = [] # Store item DATA, not objects
         self.pasted_connections_data = [] # Store connection DATA separately
-        # Змінено: Зберігаємо ID створених елементів
         self.created_item_ids = {} # Map old ID -> new ID
         self.created_connection_refs = [] # List of {'start_ref':..., 'end_ref':...}
         self.setText("Вставити елементи")
@@ -763,81 +717,115 @@ class PasteCommand(QUndoCommand):
 
 
     def redo(self):
-        created_nodes = {} # Map new ID -> new Node object (тільки для цього виклику redo)
+        created_nodes = {} # Map new ID -> new Node object (for this redo call)
+        created_others = {} # Map new ID -> new Comment/Frame object
 
-        # Якщо дані ще не підготовлені, парсимо буфер обміну
+        # If data not prepared, parse clipboard
         if not self.pasted_items_data and not self.pasted_connections_data:
-            # First time: parse clipboard and prepare data
             try:
                 clipboard_root = ET.fromstring(self.clipboard_text.encode('utf-8'))
-                nodes_xml = clipboard_root.find("nodes")
-                if nodes_xml is None:
-                     log.warning("PasteCommand: No <nodes> found in clipboard.")
+                min_x, min_y = float('inf'), float('inf')
+                elements_to_process = [] # Store tuples (element, type)
+
+                # Find minimum position across all element types
+                for type_key, find_path in [('node', 'nodes/node'), ('comment', 'comments/comment'), ('frame', 'frames/frame')]:
+                    container_xml = clipboard_root.find(find_path.split('/')[0])
+                    if container_xml is not None:
+                         for el in container_xml.findall(find_path.split('/')[1]):
+                              x = float(el.get("x", 0))
+                              y = float(el.get("y", 0))
+                              min_x, min_y = min(min_x, x), min(min_y, y)
+                              elements_to_process.append((el, type_key))
+
+                if min_x == float('inf'): # No elements found
+                     log.warning("PasteCommand: No valid elements found in clipboard.")
                      self.setObsolete(True); return
 
-                node_elements = list(nodes_xml)
-                if not node_elements:
-                     log.warning("PasteCommand: <nodes> section is empty.")
-                     self.setObsolete(True); return
-
-                # Calculate offset
-                min_x = min((float(el.get("x", 0)) for el in node_elements))
-                min_y = min((float(el.get("y", 0)) for el in node_elements))
                 ref_pos = QPointF(min_x, min_y)
+                self.created_item_ids = {} # Clear ID mapping
 
-                # Prepare node data
-                self.created_item_ids = {} # Очищаємо мапінг ID перед заповненням
-                for node_el in node_elements:
-                    node_data = BaseNode.data_from_xml(node_el)
-                    old_id = node_data['id']
-                    new_id = generate_short_id() # Generate new ID for pasted node
-                    node_data['id'] = new_id # Update data with new ID
-                    original_pos = QPointF(*node_data['pos'])
-                    # Змінено: використовуємо .x() та .y() для QPointF
-                    node_data['pos'] = ( (self.position + (original_pos - ref_pos)).x(), (self.position + (original_pos - ref_pos)).y() )
-                    self.pasted_items_data.append({'type': 'node', 'data': node_data, 'old_id': old_id})
-                    self.created_item_ids[old_id] = new_id # Зберігаємо мапінг старих на нові ID
+                # Prepare item data
+                for el, item_type in elements_to_process:
+                    item_data = None
+                    if item_type == 'node': item_data = BaseNode.data_from_xml(el)
+                    elif item_type == 'comment': item_data = CommentItem.data_from_xml(el)
+                    elif item_type == 'frame': item_data = FrameItem.data_from_xml(el)
 
-                # Prepare connection data
+                    if not item_data: continue
+
+                    # --- Mode Validation ---
+                    node_class_name = item_data.get('node_type') if item_type == 'node' else None
+                    if self.current_edit_mode == EDIT_MODE_MACRO:
+                         # Cannot paste Trigger or MacroNode into a macro
+                         if node_class_name in ['TriggerNode', 'MacroNode']: continue
+                    elif self.current_edit_mode == EDIT_MODE_SCENARIO:
+                         # Cannot paste MacroInputNode or MacroOutputNode into a scenario
+                         if node_class_name in ['MacroInputNode', 'MacroOutputNode']: continue
+                    # --- End Mode Validation ---
+
+
+                    old_id = item_data['id']
+                    new_id = generate_short_id()
+                    item_data['id'] = new_id
+                    original_pos = QPointF(*item_data['pos'])
+                    offset_pos = self.position + (original_pos - ref_pos)
+                    item_data['pos'] = (offset_pos.x(), offset_pos.y())
+
+                    self.pasted_items_data.append({'type': item_type, 'data': item_data, 'old_id': old_id})
+                    self.created_item_ids[old_id] = new_id
+
+                # Prepare connection data (only if nodes were pasted)
                 connections_xml = clipboard_root.find("connections")
-                if connections_xml is not None:
+                if connections_xml is not None and any(item['type'] == 'node' for item in self.pasted_items_data):
                     for conn_el in connections_xml:
                         conn_data = Connection.data_from_xml(conn_el)
-                        # Зберігаємо дані з'єднання з посиланнями на СТАРІ ID вузлів
-                        self.pasted_connections_data.append(conn_data)
+                        # Check if both ends of the connection belong to the pasted nodes
+                        if conn_data['from_node'] in self.created_item_ids and conn_data['to_node'] in self.created_item_ids:
+                             self.pasted_connections_data.append(conn_data)
 
             except Exception as e:
                 log.error(f"PasteCommand: Error parsing clipboard data: {e}", exc_info=True)
                 self.setObsolete(True)
                 return
 
-        # --- Створення та додавання елементів на сцену ---
-
-        # Створення вузлів
+        # --- Create and add items to the scene ---
         config = self.main_window.project_data.get('config') if self.main_window else None
         for item_info in self.pasted_items_data:
-             if item_info['type'] == 'node':
-                  node_data = item_info['data']
-                  new_id = node_data['id'] # Беремо новий ID з даних
-                  # Перевіряємо, чи вузол з таким ID вже існує (після undo/redo)
-                  existing_node = next((item for item in self.scene.items() if isinstance(item, BaseNode) and item.id == new_id), None)
-                  if existing_node:
-                      created_nodes[new_id] = existing_node # Використовуємо існуючий
-                      if existing_node.scene() != self.scene: self.scene.addItem(existing_node) # Додаємо, якщо його видалили
-                      log.debug(f"PasteCommand redo: Using existing node {new_id}")
-                      continue # Переходимо до наступного
+             item_data = item_info['data']
+             new_id = item_data['id']
+             item_type = item_info['type']
+             created_item = None
 
-                  # Якщо вузла немає, створюємо новий
-                  try:
-                       new_node = BaseNode.from_data(node_data)
-                       self.scene.addItem(new_node)
-                       new_node.update_display_properties(config)
-                       created_nodes[new_id] = new_node # Зберігаємо створений вузол за новим ID
-                  except Exception as e:
-                       log.error(f"PasteCommand: Failed to create node from data: {node_data}. Error: {e}", exc_info=True)
+             # Check if item already exists (after undo/redo)
+             existing_item = next((item for item in self.scene.items() if hasattr(item, 'id') and item.id == new_id), None)
+             if existing_item:
+                 if item_type == 'node': created_nodes[new_id] = existing_item
+                 else: created_others[new_id] = existing_item
+                 if existing_item.scene() != self.scene: self.scene.addItem(existing_item)
+                 log.debug(f"PasteCommand redo: Using existing {item_type} {new_id}")
+                 continue # Move to next item
 
-        # Створення з'єднань
-        self.created_connection_refs = [] # Очищуємо для redo
+             # Create new item
+             try:
+                 if item_type == 'node':
+                     created_item = BaseNode.from_data(item_data)
+                     created_item.update_display_properties(config)
+                     created_nodes[new_id] = created_item
+                 elif item_type == 'comment':
+                     created_item = CommentItem.from_data(item_data, self.view)
+                     created_others[new_id] = created_item
+                 elif item_type == 'frame':
+                     created_item = FrameItem.from_data(item_data, self.view)
+                     created_others[new_id] = created_item
+
+                 if created_item:
+                      self.scene.addItem(created_item)
+             except Exception as e:
+                  log.error(f"PasteCommand: Failed to create {item_type} from data: {item_data}. Error: {e}", exc_info=True)
+
+
+        # Create connections
+        self.created_connection_refs = []
         for conn_data in self.pasted_connections_data:
              new_from_id = self.created_item_ids.get(conn_data['from_node'])
              new_to_id = self.created_item_ids.get(conn_data['to_node'])
@@ -848,97 +836,72 @@ class PasteCommand(QUndoCommand):
 
                   if from_node and to_node:
                        from_socket = from_node.get_socket(conn_data['from_socket'])
-                       to_socket_name = conn_data.get('to_socket', 'in') # TODO: Save 'to_socket' in XML?
-                       to_socket = to_node.get_socket(to_socket_name)
+                       to_socket = to_node.get_socket(conn_data.get('to_socket', 'in'))
 
                        if from_socket and to_socket:
-                           # Перевіряємо, чи таке з'єднання вже існує
-                           already_exists = False
-                           for existing_conn in from_socket.connections:
-                                if existing_conn.end_socket == to_socket:
-                                     already_exists = True
-                                     # Зберігаємо посилання для undo, навіть якщо воно вже існує
-                                     self.created_connection_refs.append({
-                                         'start_ref': {'node_id': new_from_id, 'socket_name': from_socket.socket_name},
-                                         'end_ref': {'node_id': new_to_id, 'socket_name': to_socket.socket_name}
-                                     })
-                                     log.debug(f"PasteCommand redo: Connection already exists between {new_from_id} and {new_to_id}")
-                                     break
+                           already_exists = any(conn.end_socket == to_socket for conn in from_socket.connections)
+                           conn_ref_data = {
+                               'start_ref': {'node_id': new_from_id, 'socket_name': from_socket.socket_name},
+                               'end_ref': {'node_id': new_to_id, 'socket_name': to_socket.socket_name}
+                           }
+                           self.created_connection_refs.append(conn_ref_data) # Store refs for undo
+
                            if not already_exists:
                                 conn = Connection(from_socket, to_socket)
                                 self.scene.addItem(conn)
-                                # Зберігаємо посилання на сокети для undo
-                                self.created_connection_refs.append({
-                                    'start_ref': {'node_id': new_from_id, 'socket_name': from_socket.socket_name},
-                                    'end_ref': {'node_id': new_to_id, 'socket_name': to_socket.socket_name}
-                                })
-                       else:
-                            log.warning(f"PasteCommand redo: Could not find sockets for connection: {conn_data}")
-                  else:
-                       log.warning(f"PasteCommand redo: Could not find created nodes for connection: {conn_data} (IDs: {new_from_id}, {new_to_id})")
-             else:
-                  log.warning(f"PasteCommand redo: Could not map old node IDs for connection: {conn_data}")
+                           # else: log.debug(f"PasteCommand redo: Connection already exists between {new_from_id} and {new_to_id}")
+                       else: log.warning(f"PasteCommand redo: Sockets not found for connection: {conn_data}")
+                  else: log.warning(f"PasteCommand redo: Nodes not found for connection: {conn_data} (IDs: {new_from_id}, {new_to_id})")
+             else: log.warning(f"PasteCommand redo: Old node IDs not mapped for connection: {conn_data}")
 
 
-        # Виділення новостворених вузлів
+        # Select newly created items
         self.scene.clearSelection()
-        for node_id, node in created_nodes.items():
-             node.setSelected(True)
+        for item_id, item in {**created_nodes, **created_others}.items():
+             item.setSelected(True)
 
 
     def undo(self):
-         created_nodes = {} # Map new ID -> Node object found on scene
-         # Знаходимо вузли, що були створені, на сцені
+         created_items_on_scene = {} # Map new ID -> Item object found on scene
+         # Find all created items on the scene
          for old_id, new_id in self.created_item_ids.items():
-              node = next((item for item in self.scene.items() if isinstance(item, BaseNode) and item.id == new_id), None)
-              if node:
-                   created_nodes[new_id] = node
+              item = next((item for item in self.scene.items() if hasattr(item, 'id') and item.id == new_id), None)
+              if item:
+                   created_items_on_scene[new_id] = item
 
-         # Видалення створених з'єднань
+         # Remove created connections
          for conn_ref in self.created_connection_refs:
-              start_node = created_nodes.get(conn_ref['start_ref']['node_id'])
-              end_node = created_nodes.get(conn_ref['end_ref']['node_id'])
-              start_socket = start_node.get_socket(conn_ref['start_ref']['socket_name']) if start_node else None
-              end_socket = end_node.get_socket(conn_ref['end_ref']['socket_name']) if end_node else None
+              start_node = created_items_on_scene.get(conn_ref['start_ref']['node_id'])
+              end_node = created_items_on_scene.get(conn_ref['end_ref']['node_id'])
+              if isinstance(start_node, BaseNode) and isinstance(end_node, BaseNode):
+                   start_socket = start_node.get_socket(conn_ref['start_ref']['socket_name'])
+                   end_socket = end_node.get_socket(conn_ref['end_ref']['socket_name'])
+                   connection_to_remove = None
+                   if start_socket:
+                        connection_to_remove = next((conn for conn in start_socket.connections if conn.end_socket == end_socket), None)
+                   if connection_to_remove:
+                        if connection_to_remove.start_socket: connection_to_remove.start_socket.remove_connection(connection_to_remove)
+                        if connection_to_remove.end_socket: connection_to_remove.end_socket.remove_connection(connection_to_remove)
+                        if connection_to_remove.scene() == self.scene:
+                             self.scene.removeItem(connection_to_remove)
+                   # else: log.warning(f"PasteCommand undo: Connection not found for refs: {conn_ref}")
 
-              connection_to_remove = None
-              if start_socket:
-                   for conn in start_socket.connections:
-                        if conn.end_socket == end_socket:
-                             connection_to_remove = conn
-                             break
-              # Видаляємо знайдене з'єднання
-              if connection_to_remove:
-                   if connection_to_remove.start_socket: connection_to_remove.start_socket.remove_connection(connection_to_remove)
-                   if connection_to_remove.end_socket: connection_to_remove.end_socket.remove_connection(connection_to_remove)
-                   if connection_to_remove.scene() == self.scene:
-                        self.scene.removeItem(connection_to_remove)
-              else:
-                   log.warning(f"PasteCommand undo: Connection not found for refs: {conn_ref}")
-
-         # Видалення створених вузлів
-         for node_id, node in created_nodes.items():
-              if node.scene() == self.scene:
-                   self.scene.removeItem(node)
-
-         # Не очищуємо created_item_ids тут, вони потрібні для redo
-         # self.created_item_ids.clear()
-         # self.created_connection_refs = [] # Очищуємо refs, вони генеруються в redo
+         # Remove created items
+         for item_id, item in created_items_on_scene.items():
+              if item.scene() == self.scene:
+                   self.scene.removeItem(item)
 
 
 class AddFrameCommand(QUndoCommand):
     def __init__(self, scene, items, parent=None):
         super().__init__(parent)
         self.scene = scene
-        # Store item IDs instead of objects
         self.item_ids = [item.id for item in items if hasattr(item, 'id')]
-        self.frame_data = None # Store frame data for redo
-        # Змінено: не зберігаємо пряме посилання на frame
-        self.frame_id = None # ID створюється в redo
+        self.frame_data = None
+        self.frame_id = None
         self.setText("Сгрупувати в фрейм")
 
     def _find_items(self):
-        """Finds items on the scene by their stored IDs."""
         items = []
         if not self.scene: return items
         id_set = set(self.item_ids)
@@ -948,64 +911,55 @@ class AddFrameCommand(QUndoCommand):
         return items
 
     def _find_frame(self):
-         """Знаходить фрейм на сцені за ID."""
          if not self.frame_id or not self.scene: return None
          return next((i for i in self.scene.items() if isinstance(i, FrameItem) and i.id == self.frame_id), None)
 
     def redo(self):
         frame = self._find_frame()
-        if frame: # Якщо фрейм вже існує (повторне redo)
-             if frame.scene() != self.scene: # Додаємо, якщо його видалили
-                  self.scene.addItem(frame)
+        if frame:
+             if frame.scene() != self.scene: self.scene.addItem(frame)
              self.scene.clearSelection()
              frame.setSelected(True)
              return
 
-        # Перше виконання redo або після undo
         items = self._find_items()
         if not items:
             log.warning("AddFrameCommand redo: No valid items found for framing.")
             self.setObsolete(True)
             return
 
-        # Розрахунок меж і створення даних фрейму
         bounding_rect = QRectF()
         for item in items:
-            bounding_rect = bounding_rect.united(item.sceneBoundingRect())
+            if not bounding_rect.isValid(): bounding_rect = item.sceneBoundingRect()
+            else: bounding_rect = bounding_rect.united(item.sceneBoundingRect())
 
         padding = 20
         frame_rect = bounding_rect.adjusted(-padding, -padding, padding, padding)
         frame_pos = frame_rect.topLeft()
         frame_size = (frame_rect.width(), frame_rect.height())
 
-        # Create frame data
         self.frame_id = generate_short_id()
         self.frame_data = {
-            'id': self.frame_id,
-            'text': "Новая группа",
-            'pos': (frame_pos.x(), frame_pos.y()),
-            'size': frame_size
+            'id': self.frame_id, 'text': "Новая группа",
+            'pos': (frame_pos.x(), frame_pos.y()), 'size': frame_size
         }
-        # Create frame object from data
         view = self.scene.views()[0] if self.scene.views() else None
         frame = FrameItem.from_data(self.frame_data, view)
 
-        # Add frame to scene
         self.scene.addItem(frame)
         self.scene.clearSelection()
         frame.setSelected(True)
 
     def undo(self):
-        # Remove frame from scene
         frame = self._find_frame()
         if frame and frame.scene() == self.scene:
             self.scene.removeItem(frame)
 
-        # Reselect original items
         items = self._find_items()
         self.scene.clearSelection()
         for item in items:
-            item.setSelected(True)
+            if item.scene() == self.scene: # Ensure item wasn't deleted by another command
+                 item.setSelected(True)
 
 
 class UngroupFrameCommand(QUndoCommand):
@@ -1049,153 +1003,126 @@ class CreateMacroCommand(QUndoCommand):
         super().__init__(parent)
         self.main_window = main_window
         self.scene = main_window.scene
-        # Зберігаємо дані виділених елементів для відновлення
-        self.removed_items_data = [] # {'type': 'node'/'connection'/'container', 'data': ...}
-        self.external_connections_data = [] # Дані зовнішніх з'єднань, які були перепідключені
-
-        # ID нових елементів, створених в redo
+        self.removed_items_data = []
+        self.external_connections_data = []
         self.macro_id = None
         self.macro_node_id = None
-        self.new_external_connections_refs = [] # Посилання на сокети нових з'єднань
-
-        # Зберігаємо ID виділених для початкового пошуку
+        self.new_external_connections_refs = []
         self.initial_selected_ids = {item.id for item in selected_items if hasattr(item, 'id')}
-
         self.setText("Створити Макрос")
         log.debug(f"CreateMacroCommand initialized with {len(self.initial_selected_ids)} selected item IDs.")
 
 
     def redo(self):
         log.debug("CreateMacroCommand redo executing...")
-        macro_node = None # Визначаємо змінну тут
+        macro_node = None
 
-        # Якщо макрос вже створено (повторне redo), відновлюємо стан
         if self.macro_id:
             log.debug(f"Redoing macro creation for {self.macro_id}...")
-            # 1. Додаємо визначення макросу назад (якщо його видалили)
-            # Потрібні дані макросу, збережені в self.macro_data_backup
             if hasattr(self, 'macro_data_backup') and self.macro_id not in self.main_window.project_data.get('macros', {}):
                  self.main_window.project_data.setdefault('macros', {})[self.macro_id] = self.macro_data_backup
                  log.debug(f"Restored macro definition {self.macro_id}")
             elif not hasattr(self, 'macro_data_backup'):
                  log.warning("Cannot redo macro definition restoration - backup data missing.")
 
-            # 2. Видаляємо відновлені елементи з undo (якщо вони є)
             self._remove_restored_items()
-
-            # 3. Створюємо та додаємо MacroNode (якщо його немає)
             macro_node = self._find_macro_node()
             if not macro_node:
-                 # Потрібні дані макросу для update_sockets_from_definition
                  macro_data = self.main_window.project_data.get('macros', {}).get(self.macro_id)
                  if macro_data:
-                      macro_node = self._create_and_add_macro_node(macro_data) # Передаємо macro_data
+                      macro_node = self._create_and_add_macro_node(macro_data)
                  else:
                       log.error(f"Cannot recreate MacroNode: definition {self.macro_id} not found.")
                       self.setObsolete(True)
                       return
-
-            # 4. Перепідключаємо зовнішні з'єднання до MacroNode
-            if macro_node: # Перевіряємо, чи вузол успішно створено/знайдено
+            if macro_node:
                 self.new_external_connections_refs = self._reconnect_external_connections(macro_node, self.external_connections_data)
+
+            # --- ИСПРАВЛЕНО: Обновляем список макросов ---
+            self.main_window.update_macros_list()
             log.debug("Macro creation redo finished.")
             return
 
-        # Перше виконання redo
         log.debug("First execution: Creating macro...")
-
-        # Знаходимо актуальні об'єкти виділених елементів за ID
         selected_items = {item for item in self.scene.items() if hasattr(item, 'id') and item.id in self.initial_selected_ids}
         if not selected_items:
              log.warning("CreateMacroCommand redo: Initial selected items not found.")
              self.setObsolete(True)
              return
 
-        # Створюємо визначення макросу
         try:
             macro_data, external_connections_info = self._create_macro_definition_and_analyze(selected_items)
             if not macro_data:
                 self.setObsolete(True)
                 return
             self.macro_id = macro_data['id']
-            # Зберігаємо копію даних макросу для можливого відновлення в redo
             self.macro_data_backup = deepcopy(macro_data)
-            self.external_connections_data = external_connections_info # Зберігаємо дані для undo
+            self.external_connections_data = external_connections_info
         except Exception as e:
             log.error(f"Error during macro definition: {e}", exc_info=True)
             self.setObsolete(True)
             return
 
-        # Зберігаємо дані елементів, які будемо видаляти
         self.removed_items_data = []
         items_to_remove = set()
-        # Вузли всередині макросу
-        items_to_remove.update({item for item in selected_items if isinstance(item, BaseNode)})
-        # З'єднання всередині макросу
+        items_to_remove.update({item for item in selected_items if isinstance(item, (BaseNode, CommentItem, FrameItem))}) # Include comments/frames
         internal_connections = self._find_internal_connections(selected_items)
         items_to_remove.update(internal_connections)
-        # Зовнішні з'єднання (які будуть перепідключені)
         items_to_remove.update({info['original_conn'] for info in external_connections_info})
 
         for item in items_to_remove:
-            item_type = 'node' if isinstance(item, BaseNode) else 'connection' if isinstance(item, Connection) else 'container'
-            try:
-                item_data = item.to_data()
-                if item_data: # Зберігаємо тільки валідні дані
-                    self.removed_items_data.append({'type': item_type, 'data': item_data})
-            except Exception as e:
-                 log.error(f"Error getting data for item {item} to be removed: {e}", exc_info=True)
+            item_type = None
+            if isinstance(item, BaseNode): item_type = 'node'
+            elif isinstance(item, Connection): item_type = 'connection'
+            elif isinstance(item, CommentItem): item_type = 'comment'
+            elif isinstance(item, FrameItem): item_type = 'frame'
 
-        # Видаляємо вихідні елементи
+            if item_type:
+                try:
+                    item_data = item.to_data()
+                    if item_data:
+                        self.removed_items_data.append({'type': item_type, 'data': item_data})
+                except Exception as e:
+                     log.error(f"Error getting data for item {item} to be removed: {e}", exc_info=True)
+
         self._remove_items_by_objects(items_to_remove)
-
-        # Створюємо MacroNode
         macro_node = self._create_and_add_macro_node(macro_data)
-        if not macro_node: return # Помилка вже залогована всередині
+        if not macro_node: return
 
-        # Перепідключаємо зовнішні з'єднання
         self.new_external_connections_refs = self._reconnect_external_connections(macro_node, external_connections_info)
 
+        # --- ИСПРАВЛЕНО: Обновляем список макросов ---
+        self.main_window.update_macros_list()
         log.debug(f"Macro {self.macro_id} created successfully.")
 
 
     def undo(self):
         log.debug(f"CreateMacroCommand undo executing for macro {self.macro_id}...")
-        # 1. Видаляємо MacroNode
         macro_node = self._find_macro_node()
         if macro_node and macro_node.scene() == self.scene:
-            # Видаляємо нові зовнішні з'єднання, підключені до MacroNode
             for conn_ref in self.new_external_connections_refs:
                  conn = self._find_connection_by_refs(conn_ref['start_ref'], conn_ref['end_ref'])
                  if conn and conn.scene() == self.scene:
                       if conn.start_socket: conn.start_socket.remove_connection(conn)
                       if conn.end_socket: conn.end_socket.remove_connection(conn)
                       self.scene.removeItem(conn)
-            self.new_external_connections_refs = [] # Очищуємо список посилань
-            # Видаляємо сам MacroNode
+            self.new_external_connections_refs = []
             self.scene.removeItem(macro_node)
             log.debug(f"Removed MacroNode {self.macro_node_id}")
 
-        # 2. Відновлюємо видалені елементи (вузли, внутрішні та старі зовнішні з'єднання)
         self._restore_removed_items()
 
-        # 3. Видаляємо визначення макросу з project_data
         if self.macro_id and self.macro_id in self.main_window.project_data.get('macros', {}):
             try:
-                # Зберігаємо копію перед видаленням для redo (якщо вона ще не збережена)
                 if not hasattr(self, 'macro_data_backup'):
                      self.macro_data_backup = deepcopy(self.main_window.project_data['macros'][self.macro_id])
                 del self.main_window.project_data['macros'][self.macro_id]
                 log.debug(f"Removed macro definition {self.macro_id}")
             except KeyError:
                  log.warning(f"Could not remove macro definition {self.macro_id} - already removed?")
-        # else:
-             # log.warning(f"Macro definition {self.macro_id} not found for removal during undo.")
-             # Не видаляємо self.macro_id тут, він потрібен для redo
 
-        # Не скидаємо self.macro_node_id тут
-        # self.macro_id = None # Не скидаємо ID, бо макрос скасовано
-        # self.macro_node_id = None
+        # --- ИСПРАВЛЕНО: Обновляем список макросов ---
+        self.main_window.update_macros_list()
 
 
     # --- Допоміжні методи ---
@@ -1225,10 +1152,10 @@ class CreateMacroCommand(QUndoCommand):
         id_set = set(ids)
         return {item for item in self.scene.items() if hasattr(item, 'id') and item.id in id_set}
 
-    def _find_internal_connections(self, node_set):
-        """Знаходить з'єднання, обидва кінці яких належать до node_set."""
+    def _find_internal_connections(self, item_set):
+        """Знаходить з'єднання, обидва кінці яких належать до вузлів у item_set."""
         internal_connections = set()
-        node_ids = {node.id for node in node_set}
+        node_ids = {item.id for item in item_set if isinstance(item, BaseNode)}
         all_connections = [item for item in self.scene.items() if isinstance(item, Connection)]
         for conn in all_connections:
             start_node = conn.start_socket.parentItem() if conn.start_socket else None
@@ -1242,13 +1169,11 @@ class CreateMacroCommand(QUndoCommand):
          log.debug(f"Removing {len(items_to_remove)} items...")
          connections_first = {item for item in items_to_remove if isinstance(item, Connection)}
          others = items_to_remove - connections_first
-         # Спочатку видаляємо з'єднання
          for conn in connections_first:
               if conn.scene() == self.scene:
                    if conn.start_socket: conn.start_socket.remove_connection(conn)
                    if conn.end_socket: conn.end_socket.remove_connection(conn)
                    self.scene.removeItem(conn)
-         # Потім видаляємо решту
          for item in others:
               if item.scene() == self.scene:
                    self.scene.removeItem(item)
@@ -1257,10 +1182,7 @@ class CreateMacroCommand(QUndoCommand):
          """Видаляє елементи, що були відновлені під час undo."""
          log.debug(f"Removing {len(self.removed_items_data)} restored items...")
          items_to_remove_now = set()
-         # Збираємо ID відновлених елементів
          restored_ids = {item_data['data'].get('id') for item_data in self.removed_items_data if item_data['data'].get('id')}
-
-         # Знаходимо об'єкти на сцені за ID
          for item in self.scene.items():
               if hasattr(item, 'id') and item.id in restored_ids:
                    items_to_remove_now.add(item)
@@ -1268,156 +1190,148 @@ class CreateMacroCommand(QUndoCommand):
 
 
     def _restore_removed_items(self):
-         """Відновлює елементи зі збережених даних."""
-         log.debug(f"Restoring {len(self.removed_items_data)} items...")
-         restored_nodes = {} # Map ID -> Node object
-         view = self.scene.views()[0] if self.scene.views() else None
+        """Відновлює елементи зі збережених даних."""
+        log.debug(f"Restoring {len(self.removed_items_data)} items...")
+        restored_nodes = {} # Map ID -> Node object
+        view = self.scene.views()[0] if self.scene.views() else None
 
-         # 1. Відновлюємо вузли та контейнери
-         for item_info in self.removed_items_data:
-             item_type = item_info['type']
-             item_data = item_info['data']
-             item_id = item_data.get('id')
-             restored_item = None
+        # Сначала восстанавливаем узлы, комменты, фреймы
+        for item_info in self.removed_items_data:
+            item_type = item_info['type']
+            item_data = item_info['data']
+            item_id = item_data.get('id')
+            restored_item = None
+            existing_item = next((i for i in self.scene.items() if hasattr(i, 'id') and i.id == item_id), None) if item_id else None
 
-             # Перевіряємо, чи елемент вже існує на сцені
-             existing_item = next((i for i in self.scene.items() if hasattr(i, 'id') and i.id == item_id), None) if item_id else None
-             if existing_item:
-                  restored_item = existing_item
-                  log.debug(f"Item {item_id} already exists on scene during restore.")
-                  if item_type == 'node':
-                       restored_nodes[item_id] = restored_item # Додаємо існуючий до мапи
-                  continue # Не створюємо заново
+            if existing_item:
+                 restored_item = existing_item
+                 if item_type == 'node': restored_nodes[item_id] = restored_item
+                 continue
 
-             # Створюємо, якщо не існує
-             try:
-                 if item_type == 'node':
-                     restored_item = BaseNode.from_data(item_data)
-                     restored_nodes[item_id] = restored_item
-                 elif item_type == 'container':
-                      if 'size' in item_data and isinstance(item_data['size'], (tuple, list)) and len(item_data['size']) == 2:
-                          if item_data.get('text', '').startswith("Новая группа"):
-                               restored_item = FrameItem.from_data(item_data, view)
-                          else:
-                               restored_item = CommentItem.from_data(item_data, view)
-                      else: log.warning(f" Invalid size for container data: {item_data}")
+            try:
+                if item_type == 'node':
+                    restored_item = BaseNode.from_data(item_data)
+                    restored_nodes[item_id] = restored_item
+                elif item_type == 'comment' and view:
+                    restored_item = CommentItem.from_data(item_data, view)
+                elif item_type == 'frame' and view:
+                     restored_item = FrameItem.from_data(item_data, view)
 
-                 if restored_item:
-                      self.scene.addItem(restored_item)
+                if restored_item: self.scene.addItem(restored_item)
 
-             except Exception as e:
-                  log.error(f" Error restoring item {item_type} from data {item_data}: {e}", exc_info=True)
+            except Exception as e:
+                 log.error(f" Error restoring item {item_type} from data {item_data}: {e}", exc_info=True)
 
-         # 2. Відновлюємо з'єднання
-         for item_info in self.removed_items_data:
-             if item_info['type'] == 'connection':
-                 conn_data = item_info['data']
-                 from_node = restored_nodes.get(conn_data['from_node'])
-                 to_node = restored_nodes.get(conn_data['to_node'])
-                 # Шукаємо на сцені, якщо не знайшли у відновлених
-                 if not from_node: from_node = next((item for item in self.scene.items() if isinstance(item, BaseNode) and item.id == conn_data['from_node']), None)
-                 if not to_node: to_node = next((item for item in self.scene.items() if isinstance(item, BaseNode) and item.id == conn_data['to_node']), None)
+        # Затем восстанавливаем соединения
+        for item_info in self.removed_items_data:
+            if item_info['type'] == 'connection':
+                conn_data = item_info['data']
+                from_node_id = conn_data.get('from_node')
+                to_node_id = conn_data.get('to_node')
+                if not from_node_id or not to_node_id: continue
 
-                 if from_node and to_node:
-                     start_socket = from_node.get_socket(conn_data['from_socket'])
-                     to_socket_name = conn_data.get('to_socket', 'in')
-                     end_socket = to_node.get_socket(to_socket_name)
-                     if start_socket and end_socket:
-                         # Перевіряємо, чи з'єднання вже існує
-                         already_exists = any(conn.end_socket == end_socket for conn in start_socket.connections)
-                         if not already_exists:
-                             try:
-                                 conn = Connection(start_socket, end_socket)
-                                 self.scene.addItem(conn)
-                                 conn.update_path()
-                             except Exception as e:
-                                 log.error(f"Error creating/adding connection in undo: {e}", exc_info=True)
-                         # else: log.debug(f" Connection already exists during restore: {from_node.id} -> {to_node.id}")
-                     else: log.warning(f" Could not find sockets for restored connection: {conn_data}")
-                 else: log.warning(f" Could not find nodes for restored connection: {conn_data}")
+                from_node = restored_nodes.get(from_node_id) or next((item for item in self.scene.items() if isinstance(item, BaseNode) and item.id == from_node_id), None)
+                to_node = restored_nodes.get(to_node_id) or next((item for item in self.scene.items() if isinstance(item, BaseNode) and item.id == to_node_id), None)
+
+                if from_node and to_node:
+                    start_socket = from_node.get_socket(conn_data['from_socket'])
+                    end_socket = to_node.get_socket(conn_data.get('to_socket', 'in'))
+                    if start_socket and end_socket:
+                        already_exists = any(conn.end_socket == end_socket for conn in start_socket.connections)
+                        if not already_exists:
+                            try:
+                                conn = Connection(start_socket, end_socket)
+                                self.scene.addItem(conn)
+                                conn.update_path()
+                            except Exception as e:
+                                log.error(f"Error creating/adding connection in undo: {e}", exc_info=True)
+                    else: log.warning(f" Could not find sockets for restored connection: {conn_data}")
+                else: log.warning(f" Could not find nodes for restored connection: {conn_data}")
 
 
     def _create_macro_definition_and_analyze(self, selected_items):
         """Створює визначення макросу та аналізує зовнішні зв'язки."""
-        # --- Запит імені макросу ---
         macro_name_input, ok = QInputDialog.getText(
-            self.main_window,
-            "Створення Макросу",
+            self.main_window, "Створення Макросу",
             "Введіть ім'я для нового макросу:",
             QLineEdit.EchoMode.Normal,
             f"Макрос {len(self.main_window.project_data.get('macros', {})) + 1}"
         )
         if not ok or not macro_name_input.strip():
              log.warning("Macro creation cancelled by user.")
-             return None, None # Скасовуємо створення
+             return None, None
         macro_name = macro_name_input.strip()
-        macro_id = generate_short_id()
-        # --- Кінець запиту імені ---
+        # Проверка на уникальность имени
+        for existing_macro in self.main_window.project_data.get('macros', {}).values():
+             if existing_macro.get('name') == macro_name:
+                  log.error(f"Macro name '{macro_name}' already exists.")
+                  # TODO: Показать сообщение пользователю
+                  return None, None
 
+        macro_id = generate_short_id()
         log.debug(f"Generating macro definition. ID: {macro_id}, Name: {macro_name}")
 
         selected_nodes = {item for item in selected_items if isinstance(item, BaseNode)}
         selected_node_ids = {node.id for node in selected_nodes}
+        # Исключаем комментарии и фреймы из анализа соединений, но копируем их
+        selected_comments = {item for item in selected_items if isinstance(item, CommentItem)}
+        selected_frames = {item for item in selected_items if isinstance(item, FrameItem)}
+
 
         internal_nodes_data = []
         internal_connections_data = []
-        macro_inputs = [] # {'name': 'In1', 'internal_node_id': 'xyz', 'internal_socket_name': 'in', 'macro_input_node_id': 'guid'}
-        macro_outputs = []# {'name': 'Out1', 'internal_node_id': 'abc', 'internal_socket_name': 'out', 'macro_output_node_id': 'guid'}
-        external_connections_info = [] # Для перепідключення в redo/undo
+        internal_comments_data = [c.to_data() for c in selected_comments] # Сохраняем комменты
+        internal_frames_data = [f.to_data() for f in selected_frames] # Сохраняем фреймы
+
+        macro_inputs = []
+        macro_outputs = []
+        external_connections_info = []
 
         old_id_to_new_id = {}
         all_scene_connections = [item for item in self.scene.items() if isinstance(item, Connection)]
 
-        # 1. Копіюємо вузли та генеруємо нові ID
-        log.debug("Copying internal nodes...")
-        bounding_rect = QRectF()
         min_x, min_y = float('inf'), float('inf')
-        node_positions = [] # Зберігаємо позиції для розрахунку центру
-        try: # Додаємо try-except для цього блоку
-            for node in selected_nodes:
-                node_rect = node.sceneBoundingRect()
-                node_pos = node.pos()
-                node_positions.append(node_pos) # Додаємо позицію для розрахунку центру пізніше
+        bounding_rect = QRectF()
 
-                if not bounding_rect.isValid(): bounding_rect = node_rect
-                else: bounding_rect = bounding_rect.united(node_rect)
+        try:
+            items_to_normalize = list(selected_nodes) + list(selected_comments) + list(selected_frames)
+            if not items_to_normalize: return None, None # Нечего копировать
 
-                min_x = min(min_x, node_pos.x())
-                min_y = min(min_y, node_pos.y())
+            for item in items_to_normalize:
+                item_rect = item.sceneBoundingRect()
+                item_pos = item.pos()
+                if not bounding_rect.isValid(): bounding_rect = item_rect
+                else: bounding_rect = bounding_rect.united(item_rect)
+                min_x = min(min_x, item_pos.x())
+                min_y = min(min_y, item_pos.y())
 
                 new_id = generate_short_id()
-                old_id_to_new_id[node.id] = new_id
-                node_data = node.to_data()
-                node_data['id'] = new_id
-                internal_nodes_data.append(node_data) # Зберігаємо дані з оригінальними позиціями поки що
+                old_id = item.id
+                old_id_to_new_id[old_id] = new_id
+                item_data = item.to_data()
+                item_data['id'] = new_id
 
-            # Перевірка, чи вдалося обчислити min_x, min_y
-            if min_x == float('inf') or min_y == float('inf'):
-                 # Якщо вибрано лише один елемент без валідних меж, може статися помилка
-                 if len(selected_nodes) == 1:
-                      # Використовуємо позицію єдиного вузла
-                      single_node = list(selected_nodes)[0]
-                      min_x = single_node.pos().x()
-                      min_y = single_node.pos().y()
-                      log.warning("Bounding rect calculation failed for single node, using node position as min_x/min_y.")
-                 else:
-                      log.error("Could not determine bounds of selected nodes (min_x/min_y is inf). Aborting macro creation.")
-                      return None, None
+                # Сохраняем данные в соответствующие списки
+                if isinstance(item, BaseNode): internal_nodes_data.append(item_data)
+                elif isinstance(item, CommentItem): internal_comments_data.append(item_data)
+                elif isinstance(item, FrameItem): internal_frames_data.append(item_data)
 
-            log.debug(f"Calculated bounds: min_x={min_x:.1f}, min_y={min_y:.1f}, width={bounding_rect.width():.1f}, height={bounding_rect.height():.1f}")
 
-            # Нормалізуємо позиції ТІЛЬКИ після обчислення min_x, min_y
-            for node_data in internal_nodes_data:
-                 original_pos_x, original_pos_y = node_data['pos']
-                 node_data['pos'] = (original_pos_x - min_x, original_pos_y - min_y)
-                 log.debug(f"  Node {node_data['node_type']} original pos ({original_pos_x:.1f}, {original_pos_y:.1f}), normalized to ({node_data['pos'][0]:.1f}, {node_data['pos'][1]:.1f})")
+            if min_x == float('inf'):
+                 log.error("Could not determine bounds of selected items. Aborting macro creation.")
+                 return None, None
+
+            # Нормализуем позиции ВСЕХ скопированных элементов
+            for data_list in [internal_nodes_data, internal_comments_data, internal_frames_data]:
+                 for item_data in data_list:
+                      original_pos_x, original_pos_y = item_data['pos']
+                      item_data['pos'] = (original_pos_x - min_x, original_pos_y - min_y)
 
         except Exception as e:
-             log.error(f"Error processing selected nodes: {e}", exc_info=True)
+             log.error(f"Error processing selected items: {e}", exc_info=True)
              return None, None
 
 
-        # Розраховуємо центр для розміщення MacroInput/Output (використовуємо нормалізовані координати bounding_rect)
         normalized_bounding_rect = bounding_rect.translated(-min_x, -min_y)
         center_x = normalized_bounding_rect.center().x()
         center_y = normalized_bounding_rect.center().y()
@@ -1428,9 +1342,7 @@ class CreateMacroCommand(QUndoCommand):
         input_count = 0
         output_count = 0
 
-        # 2. Аналізуємо з'єднання
-        log.debug("Analyzing connections...")
-        try: # Додаємо try-except для аналізу з'єднань
+        try:
             for conn in all_scene_connections:
                 start_node = conn.start_socket.parentItem() if conn.start_socket else None
                 end_node = conn.end_socket.parentItem() if conn.end_socket else None
@@ -1440,95 +1352,80 @@ class CreateMacroCommand(QUndoCommand):
                 end_in_selection = end_node.id in selected_node_ids
 
                 if start_in_selection and end_in_selection:
-                    # Внутрішнє з'єднання
                     conn_data = conn.to_data()
                     new_from_id = old_id_to_new_id.get(conn_data['from_node'])
                     new_to_id = old_id_to_new_id.get(conn_data['to_node'])
                     if new_from_id and new_to_id:
                          conn_data['from_node'] = new_from_id
                          conn_data['to_node'] = new_to_id
-                         conn_data['to_socket'] = conn.end_socket.socket_name # Зберігаємо цільовий сокет
                          internal_connections_data.append(conn_data)
                 elif not start_in_selection and end_in_selection:
-                    # Вхідне з'єднання
                     input_count += 1
                     input_name = f"Вхід {input_count}"
                     macro_input_node = MacroInputNode(name=input_name)
-                    # Розміщуємо вузол входу відносно нормалізованих координат
-                    input_x = -macro_input_node.width - 50 # Зліва
-                    # Розподіляємо вертикально відносно центру bounding_rect
-                    input_y = center_y + (input_count - (len(macro_inputs) + 1 + 1) / 2) * 70 # Додаємо +1 для кращого розподілу
-                    macro_input_node.setPos(input_x, input_y)
+                    input_x = -macro_input_node.width - 50
+                    input_y = center_y + (input_count - (len(macro_inputs) + 1 + 1) / 2) * 70
                     input_node_data = macro_input_node.to_data()
-                    # Перезаписуємо позицію в даних, бо setPos міг не оновити її там
                     input_node_data['pos'] = (input_x, input_y)
                     internal_nodes_data.append(input_node_data)
                     log.debug(f"  Created MacroInputNode '{input_name}' at ({input_x:.1f}, {input_y:.1f})")
-
 
                     internal_target_node_id = old_id_to_new_id.get(end_node.id)
                     internal_target_socket_name = conn.end_socket.socket_name
                     input_info = {
                         'name': input_name,
-                        'internal_node_id': internal_target_node_id,
+                        'internal_node_id': internal_target_node_id, # Target inside macro
                         'internal_socket_name': internal_target_socket_name,
-                        'macro_input_node_id': input_node_data['id']
+                        'macro_input_node_id': input_node_data['id'] # ID of the MacroInputNode itself
                     }
                     macro_inputs.append(input_info)
-
                     internal_connections_data.append({
                          'from_node': input_node_data['id'], 'from_socket': 'out',
                          'to_node': internal_target_node_id, 'to_socket': internal_target_socket_name
                     })
                     external_connections_info.append({
                          'type': 'input', 'original_conn_data': conn.to_data(), 'target_input_name': input_name,
-                         'original_conn': conn # Зберігаємо сам об'єкт для видалення
+                         'original_conn': conn
                     })
                 elif start_in_selection and not end_in_selection:
-                     # Вихідне з'єднання
                     output_count += 1
                     output_name = f"Вихід {output_count}"
                     macro_output_node = MacroOutputNode(name=output_name)
-                    # Розміщуємо вузол виходу відносно нормалізованих координат
-                    output_x = normalized_width + 50 # Справа
-                    output_y = center_y + (output_count - (len(macro_outputs) + 1 + 1) / 2) * 70 # Розподіляємо вертикально
-                    macro_output_node.setPos(output_x, output_y)
+                    output_x = normalized_width + 50
+                    output_y = center_y + (output_count - (len(macro_outputs) + 1 + 1) / 2) * 70
                     output_node_data = macro_output_node.to_data()
-                    output_node_data['pos'] = (output_x, output_y) # Перезаписуємо позицію
+                    output_node_data['pos'] = (output_x, output_y)
                     internal_nodes_data.append(output_node_data)
                     log.debug(f"  Created MacroOutputNode '{output_name}' at ({output_x:.1f}, {output_y:.1f})")
-
 
                     internal_source_node_id = old_id_to_new_id.get(start_node.id)
                     internal_source_socket_name = conn.start_socket.socket_name
                     output_info = {
                         'name': output_name,
-                        'internal_node_id': internal_source_node_id,
+                        'internal_node_id': internal_source_node_id, # Source inside macro
                         'internal_socket_name': internal_source_socket_name,
-                        'macro_output_node_id': output_node_data['id']
+                        'macro_output_node_id': output_node_data['id'] # ID of MacroOutputNode
                     }
                     macro_outputs.append(output_info)
-
                     internal_connections_data.append({
                          'from_node': internal_source_node_id, 'from_socket': internal_source_socket_name,
                          'to_node': output_node_data['id'], 'to_socket': 'in'
                     })
                     external_connections_info.append({
                         'type': 'output', 'original_conn_data': conn.to_data(), 'source_output_name': output_name,
-                        'original_conn': conn # Зберігаємо сам об'єкт для видалення
+                        'original_conn': conn
                     })
         except Exception as e:
             log.error(f"Error analyzing connections: {e}", exc_info=True)
             return None, None
 
-        # 3. Створюємо словник визначення макросу
         macro_data = {
             'id': macro_id, 'name': macro_name,
             'nodes': internal_nodes_data, 'connections': internal_connections_data,
+            'comments': internal_comments_data, 'frames': internal_frames_data, # Save comments/frames
             'inputs': macro_inputs, 'outputs': macro_outputs
         }
 
-        # 4. Додаємо визначення до проекту
         self.main_window.project_data.setdefault('macros', {})[macro_id] = macro_data
         log.debug(f"Macro definition '{macro_id}' created and added to project data.")
 
@@ -1541,7 +1438,6 @@ class CreateMacroCommand(QUndoCommand):
               self.setObsolete(True)
               return None
 
-         # Отримуємо дані макросу, якщо вони не передані (для повторного redo)
          if not macro_data:
               macro_data = self.main_window.project_data.get('macros', {}).get(self.macro_id)
               if not macro_data:
@@ -1549,29 +1445,23 @@ class CreateMacroCommand(QUndoCommand):
                    self.setObsolete(True)
                    return None
 
-         # Розраховуємо позицію для MacroNode (центр виділених елементів)
          center_pos = QPointF(0, 0)
-         # Використовуємо ЗБЕРЕЖЕНІ дані для розрахунку центру
-         node_positions = [QPointF(*item_info['data']['pos']) for item_info in self.removed_items_data if item_info['type'] == 'node']
+         node_positions = [QPointF(*item_info['data']['pos']) for item_info in self.removed_items_data if item_info['type'] in ['node', 'comment', 'frame']] # Include comments/frames
          if node_positions:
              try:
                  center_x = sum(p.x() for p in node_positions) / len(node_positions)
                  center_y = sum(p.y() for p in node_positions) / len(node_positions)
                  center_pos = QPointF(center_x, center_y)
              except ZeroDivisionError:
-                  log.warning("Cannot calculate center position for MacroNode - no node positions found in removed data.")
-                  # Використовуємо позицію першого вузла або (0,0)
+                  log.warning("Cannot calculate center position for MacroNode.")
                   if self.removed_items_data: center_pos = QPointF(*self.removed_items_data[0]['data'].get('pos', (0,0)))
          log.debug(f"Calculated center position for MacroNode: ({center_pos.x():.1f}, {center_pos.y():.1f})")
 
 
-         # Створюємо вузол
          try:
              macro_node = MacroNode(macro_id=self.macro_id, name=macro_data['name'])
-             self.macro_node_id = macro_node.id # Зберігаємо ID створеного вузла
+             self.macro_node_id = macro_node.id
              macro_node.setPos(center_pos)
-
-             # Оновлюємо сокети та додаємо на сцену
              macro_node.update_sockets_from_definition(macro_data)
              self.scene.addItem(macro_node)
              self.scene.clearSelection()
@@ -1587,57 +1477,49 @@ class CreateMacroCommand(QUndoCommand):
     def _reconnect_external_connections(self, macro_node, external_connections_info=None):
         """Перепідключає зовнішні з'єднання до MacroNode."""
         if external_connections_info is None:
-             external_connections_info = self.external_connections_data # Використовуємо збережені дані
+             external_connections_info = self.external_connections_data
 
         log.debug(f"Reconnecting {len(external_connections_info)} external connections to MacroNode {macro_node.id}...")
-        new_connections_refs = [] # Зберігаємо посилання на сокети
+        new_connections_refs = []
         for info in external_connections_info:
             original_data = info['original_conn_data']
             new_conn = None
             try:
                 if info['type'] == 'input':
-                    # Зовнішній вузол -> MacroNode
                     external_node_id = original_data['from_node']
                     external_socket_name = original_data['from_socket']
-                    macro_socket_name = info['target_input_name'] # Ім'я входу макросу стало іменем сокету
-
+                    macro_socket_name = info['target_input_name']
                     external_node = next((item for item in self.scene.items() if isinstance(item, BaseNode) and item.id == external_node_id), None)
                     if external_node:
                         external_socket = external_node.get_socket(external_socket_name)
                         macro_socket = macro_node.get_socket(macro_socket_name)
                         if external_socket and macro_socket:
-                            # Перевірка, чи з'єднання вже існує
                             already_exists = any(c.end_socket == macro_socket for c in external_socket.connections)
                             if not already_exists:
                                  new_conn = Connection(external_socket, macro_socket)
                                  log.debug(f"  Reconnected Input: {external_node_id}:{external_socket_name} -> Macro:{macro_socket_name}")
-                            # else: log.debug(f" Input connection already exists.")
-                        # else: log.warning(f"  Input reconnect failed: Sockets not found (ext: {external_socket}, macro: {macro_socket})")
-                    # else: log.warning(f"  Input reconnect failed: External node {external_node_id} not found.")
+                        else: log.warning(f"  Input reconnect failed: Sockets not found (ext: {external_socket}, macro: {macro_socket}, name: {macro_socket_name})")
+                    else: log.warning(f"  Input reconnect failed: External node {external_node_id} not found.")
 
                 elif info['type'] == 'output':
-                    # MacroNode -> Зовнішній вузол
                     external_node_id = original_data['to_node']
-                    external_socket_name = original_data.get('to_socket', 'in') # TODO: Save 'to_socket'?
+                    external_socket_name = original_data.get('to_socket', 'in')
                     macro_socket_name = info['source_output_name']
-
                     external_node = next((item for item in self.scene.items() if isinstance(item, BaseNode) and item.id == external_node_id), None)
                     if external_node:
                         external_socket = external_node.get_socket(external_socket_name)
                         macro_socket = macro_node.get_socket(macro_socket_name)
                         if external_socket and macro_socket:
-                            # Перевірка, чи з'єднання вже існує
                             already_exists = any(c.end_socket == external_socket for c in macro_socket.connections)
                             if not already_exists:
                                  new_conn = Connection(macro_socket, external_socket)
                                  log.debug(f"  Reconnected Output: Macro:{macro_socket_name} -> {external_node_id}:{external_socket_name}")
-                            # else: log.debug(f" Output connection already exists.")
-                        # else: log.warning(f"  Output reconnect failed: Sockets not found (macro: {macro_socket}, ext: {external_socket})")
-                    # else: log.warning(f"  Output reconnect failed: External node {external_node_id} not found.")
+                        else: log.warning(f"  Output reconnect failed: Sockets not found (macro: {macro_socket}, ext: {external_socket}, name: {macro_socket_name})")
+                    else: log.warning(f"  Output reconnect failed: External node {external_node_id} not found.")
 
                 if new_conn:
                     self.scene.addItem(new_conn)
-                    new_connections_refs.append({ # Зберігаємо посилання
+                    new_connections_refs.append({
                         'start_ref': {'node_id': new_conn.start_socket.parentItem().id, 'socket_name': new_conn.start_socket.socket_name},
                         'end_ref': {'node_id': new_conn.end_socket.parentItem().id, 'socket_name': new_conn.end_socket.socket_name}
                     })
@@ -1645,5 +1527,5 @@ class CreateMacroCommand(QUndoCommand):
             except Exception as e:
                  log.error(f" Error reconnecting external connection {info}: {e}", exc_info=True)
 
-        return new_connections_refs # Повертаємо список посилань
+        return new_connections_refs
 
