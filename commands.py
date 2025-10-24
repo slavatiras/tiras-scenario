@@ -722,6 +722,23 @@ class PasteCommand(QUndoCommand):
 
         # If data not prepared, parse clipboard
         if not self.pasted_items_data and not self.pasted_connections_data:
+
+            # --- [ЗМІНА] Отримуємо сцену з view і перевіряємо наявні вузли ---
+            self.scene = self.view.scene() if self.view else None
+            if not self.scene:
+                log.error("PasteCommand: Scene not found via view.")
+                self.setObsolete(True); return
+
+            # Відстежуємо дублікати *всередині* буфера обміну
+            pasted_input_node_found = False
+            pasted_output_node_found = False
+
+            # Перевіряємо вузли, *вже наявні на сцені*
+            scene_has_input = any(isinstance(item, MacroInputNode) for item in self.scene.items())
+            scene_has_output = any(isinstance(item, MacroOutputNode) for item in self.scene.items())
+            log.debug(f"PasteCommand redo: Scene check: has_input={scene_has_input}, has_output={scene_has_output}") # Діагностика
+            # --- [КІНЕЦЬ ЗМІНИ] ---
+
             try:
                 clipboard_root = ET.fromstring(self.clipboard_text.encode('utf-8'))
                 min_x, min_y = float('inf'), float('inf')
@@ -757,10 +774,29 @@ class PasteCommand(QUndoCommand):
                     node_class_name = item_data.get('node_type') if item_type == 'node' else None
                     if self.current_edit_mode == EDIT_MODE_MACRO:
                          # Cannot paste Trigger or MacroNode into a macro
-                         if node_class_name in ['TriggerNode', 'MacroNode']: continue
+                         if node_class_name in ['TriggerNode', 'MacroNode']:
+                             log.debug(f"PasteCommand: Skipping {node_class_name} paste into macro.") # Діагностика
+                             continue
+
+                         # --- [ЗМІНА] Перевірка на дублювання Входу/Виходу Макроса ---
+                         if node_class_name == 'MacroInputNode':
+                              if scene_has_input or pasted_input_node_found:
+                                   log.warning("PasteCommand: Skipping duplicate MacroInputNode paste into macro.")
+                                   continue # Пропускаємо цей елемент
+                              pasted_input_node_found = True
+
+                         if node_class_name == 'MacroOutputNode':
+                              if scene_has_output or pasted_output_node_found:
+                                   log.warning("PasteCommand: Skipping duplicate MacroOutputNode paste into macro.")
+                                   continue # Пропускаємо цей елемент
+                              pasted_output_node_found = True
+                         # --- [КІНЕЦЬ ЗМІНИ] ---
+
                     elif self.current_edit_mode == EDIT_MODE_SCENARIO:
                          # Cannot paste MacroInputNode or MacroOutputNode into a scenario
-                         if node_class_name in ['MacroInputNode', 'MacroOutputNode']: continue
+                         if node_class_name in ['MacroInputNode', 'MacroOutputNode']:
+                             log.debug(f"PasteCommand: Skipping {node_class_name} paste into scenario.") # Діагностика
+                             continue
                     # --- End Mode Validation ---
 
 
@@ -1171,12 +1207,20 @@ class CreateMacroCommand(QUndoCommand):
          others = items_to_remove - connections_first
          for conn in connections_first:
               if conn.scene() == self.scene:
-                   if conn.start_socket: conn.start_socket.remove_connection(conn)
-                   if conn.end_socket: conn.end_socket.remove_connection(conn)
-                   self.scene.removeItem(conn)
+                   try: # Додаємо try-except
+                        if conn.start_socket: conn.start_socket.remove_connection(conn)
+                        if conn.end_socket: conn.end_socket.remove_connection(conn)
+                        self.scene.removeItem(conn)
+                   except Exception as e:
+                        log.error(f"Error removing connection {conn.start_socket.parentItem().id if conn.start_socket else '?'}->{conn.end_socket.parentItem().id if conn.end_socket else '?'} in _remove_items_by_objects: {e}", exc_info=True)
+
          for item in others:
               if item.scene() == self.scene:
-                   self.scene.removeItem(item)
+                   try: # Додаємо try-except
+                       self.scene.removeItem(item)
+                   except Exception as e:
+                       log.error(f"Error removing item {getattr(item, 'id', item)} in _remove_items_by_objects: {e}", exc_info=True)
+
 
     def _remove_restored_items(self):
          """Видаляє елементи, що були відновлені під час undo."""
@@ -1204,11 +1248,13 @@ class CreateMacroCommand(QUndoCommand):
             existing_item = next((i for i in self.scene.items() if hasattr(i, 'id') and i.id == item_id), None) if item_id else None
 
             if existing_item:
+                 log.debug(f"Item {item_id} already exists on scene during restore. Using existing.") # Діагностика
                  restored_item = existing_item
                  if item_type == 'node': restored_nodes[item_id] = restored_item
                  continue
 
             try:
+                log.debug(f"Attempting to restore {item_type} with ID {item_id}") # Діагностика
                 if item_type == 'node':
                     restored_item = BaseNode.from_data(item_data)
                     restored_nodes[item_id] = restored_item
@@ -1217,7 +1263,11 @@ class CreateMacroCommand(QUndoCommand):
                 elif item_type == 'frame' and view:
                      restored_item = FrameItem.from_data(item_data, view)
 
-                if restored_item: self.scene.addItem(restored_item)
+                if restored_item:
+                    log.debug(f"Adding restored {item_type} {item_id} to scene.") # Діагностика
+                    self.scene.addItem(restored_item)
+                else:
+                     log.warning(f"Failed to create {item_type} object for ID {item_id} during restore.") # Діагностика
 
             except Exception as e:
                  log.error(f" Error restoring item {item_type} from data {item_data}: {e}", exc_info=True)
@@ -1228,6 +1278,7 @@ class CreateMacroCommand(QUndoCommand):
                 conn_data = item_info['data']
                 from_node_id = conn_data.get('from_node')
                 to_node_id = conn_data.get('to_node')
+                log.debug(f"Attempting to restore connection {from_node_id} -> {to_node_id}") # Діагностика
                 if not from_node_id or not to_node_id: continue
 
                 from_node = restored_nodes.get(from_node_id) or next((item for item in self.scene.items() if isinstance(item, BaseNode) and item.id == from_node_id), None)
@@ -1243,8 +1294,11 @@ class CreateMacroCommand(QUndoCommand):
                                 conn = Connection(start_socket, end_socket)
                                 self.scene.addItem(conn)
                                 conn.update_path()
+                                log.debug(f"Successfully restored connection {from_node_id} -> {to_node_id}") # Діагностика
                             except Exception as e:
                                 log.error(f"Error creating/adding connection in undo: {e}", exc_info=True)
+                        else:
+                             log.debug(f"Connection {from_node_id} -> {to_node_id} already exists.") # Діагностика
                     else: log.warning(f" Could not find sockets for restored connection: {conn_data}")
                 else: log.warning(f" Could not find nodes for restored connection: {conn_data}")
 
@@ -1273,19 +1327,19 @@ class CreateMacroCommand(QUndoCommand):
 
         selected_nodes = {item for item in selected_items if isinstance(item, BaseNode)}
         selected_node_ids = {node.id for node in selected_nodes}
-        # Исключаем комментарии и фреймы из анализа соединений, но копируем их
         selected_comments = {item for item in selected_items if isinstance(item, CommentItem)}
         selected_frames = {item for item in selected_items if isinstance(item, FrameItem)}
 
 
         internal_nodes_data = []
         internal_connections_data = []
-        internal_comments_data = [c.to_data() for c in selected_comments] # Сохраняем комменты
-        internal_frames_data = [f.to_data() for f in selected_frames] # Сохраняем фреймы
+        internal_comments_data = [c.to_data() for c in selected_comments]
+        internal_frames_data = [f.to_data() for f in selected_frames]
 
-        macro_inputs = []
-        macro_outputs = []
-        external_connections_info = []
+        # --- [ЗМІНА] Збираємо потенційні входи/виходи перед сортуванням ---
+        potential_inputs = [] # Зберігатимемо (internal_node_y, conn_data, conn_obj)
+        potential_outputs = [] # Зберігатимемо (internal_node_y, conn_data, conn_obj)
+        # --- [КІНЕЦЬ ЗМІНИ] ---
 
         old_id_to_new_id = {}
         all_scene_connections = [item for item in self.scene.items() if isinstance(item, Connection)]
@@ -1295,7 +1349,7 @@ class CreateMacroCommand(QUndoCommand):
 
         try:
             items_to_normalize = list(selected_nodes) + list(selected_comments) + list(selected_frames)
-            if not items_to_normalize: return None, None # Нечего копировать
+            if not items_to_normalize: return None, None
 
             for item in items_to_normalize:
                 item_rect = item.sceneBoundingRect()
@@ -1311,7 +1365,6 @@ class CreateMacroCommand(QUndoCommand):
                 item_data = item.to_data()
                 item_data['id'] = new_id
 
-                # Сохраняем данные в соответствующие списки
                 if isinstance(item, BaseNode): internal_nodes_data.append(item_data)
                 elif isinstance(item, CommentItem): internal_comments_data.append(item_data)
                 elif isinstance(item, FrameItem): internal_frames_data.append(item_data)
@@ -1321,7 +1374,6 @@ class CreateMacroCommand(QUndoCommand):
                  log.error("Could not determine bounds of selected items. Aborting macro creation.")
                  return None, None
 
-            # Нормализуем позиции ВСЕХ скопированных элементов
             for data_list in [internal_nodes_data, internal_comments_data, internal_frames_data]:
                  for item_data in data_list:
                       original_pos_x, original_pos_y = item_data['pos']
@@ -1338,10 +1390,8 @@ class CreateMacroCommand(QUndoCommand):
         normalized_width = normalized_bounding_rect.width()
         log.debug(f"Normalized center: ({center_x:.1f}, {center_y:.1f}), Normalized width: {normalized_width:.1f}")
 
-
-        input_count = 0
-        output_count = 0
-
+        # --- [ЗМІНА] Збираємо внутрішні та зовнішні з'єднання ---
+        external_connections_info = [] # Тепер зберігатимемо повну інформацію
         try:
             for conn in all_scene_connections:
                 start_node = conn.start_socket.parentItem() if conn.start_socket else None
@@ -1352,6 +1402,7 @@ class CreateMacroCommand(QUndoCommand):
                 end_in_selection = end_node.id in selected_node_ids
 
                 if start_in_selection and end_in_selection:
+                    # Внутрішнє з'єднання
                     conn_data = conn.to_data()
                     new_from_id = old_id_to_new_id.get(conn_data['from_node'])
                     new_to_id = old_id_to_new_id.get(conn_data['to_node'])
@@ -1360,69 +1411,87 @@ class CreateMacroCommand(QUndoCommand):
                          conn_data['to_node'] = new_to_id
                          internal_connections_data.append(conn_data)
                 elif not start_in_selection and end_in_selection:
-                    input_count += 1
-                    input_name = f"Вхід {input_count}"
-                    macro_input_node = MacroInputNode(name=input_name)
-                    input_x = -macro_input_node.width - 50
-                    input_y = center_y + (input_count - (len(macro_inputs) + 1 + 1) / 2) * 70
-                    input_node_data = macro_input_node.to_data()
-                    input_node_data['pos'] = (input_x, input_y)
-                    internal_nodes_data.append(input_node_data)
-                    log.debug(f"  Created MacroInputNode '{input_name}' at ({input_x:.1f}, {input_y:.1f})")
-
-                    internal_target_node_id = old_id_to_new_id.get(end_node.id)
-                    internal_target_socket_name = conn.end_socket.socket_name
-                    input_info = {
-                        'name': input_name,
-                        'internal_node_id': internal_target_node_id, # Target inside macro
-                        'internal_socket_name': internal_target_socket_name,
-                        'macro_input_node_id': input_node_data['id'] # ID of the MacroInputNode itself
-                    }
-                    macro_inputs.append(input_info)
-                    internal_connections_data.append({
-                         'from_node': input_node_data['id'], 'from_socket': 'out',
-                         'to_node': internal_target_node_id, 'to_socket': internal_target_socket_name
-                    })
-                    external_connections_info.append({
-                         'type': 'input', 'original_conn_data': conn.to_data(), 'target_input_name': input_name,
-                         'original_conn': conn
-                    })
+                    # Потенційний вхід
+                    internal_node_y = end_node.pos().y() # Y-позиція внутрішнього вузла
+                    potential_inputs.append((internal_node_y, conn.to_data(), conn))
                 elif start_in_selection and not end_in_selection:
-                    output_count += 1
-                    output_name = f"Вихід {output_count}"
-                    macro_output_node = MacroOutputNode(name=output_name)
-                    output_x = normalized_width + 50
-                    output_y = center_y + (output_count - (len(macro_outputs) + 1 + 1) / 2) * 70
-                    output_node_data = macro_output_node.to_data()
-                    output_node_data['pos'] = (output_x, output_y)
-                    internal_nodes_data.append(output_node_data)
-                    log.debug(f"  Created MacroOutputNode '{output_name}' at ({output_x:.1f}, {output_y:.1f})")
-
-                    internal_source_node_id = old_id_to_new_id.get(start_node.id)
-                    internal_source_socket_name = conn.start_socket.socket_name
-                    output_info = {
-                        'name': output_name,
-                        'internal_node_id': internal_source_node_id, # Source inside macro
-                        'internal_socket_name': internal_source_socket_name,
-                        'macro_output_node_id': output_node_data['id'] # ID of MacroOutputNode
-                    }
-                    macro_outputs.append(output_info)
-                    internal_connections_data.append({
-                         'from_node': internal_source_node_id, 'from_socket': internal_source_socket_name,
-                         'to_node': output_node_data['id'], 'to_socket': 'in'
-                    })
-                    external_connections_info.append({
-                        'type': 'output', 'original_conn_data': conn.to_data(), 'source_output_name': output_name,
-                        'original_conn': conn
-                    })
+                    # Потенційний вихід
+                    internal_node_y = start_node.pos().y() # Y-позиція внутрішнього вузла
+                    potential_outputs.append((internal_node_y, conn.to_data(), conn))
         except Exception as e:
             log.error(f"Error analyzing connections: {e}", exc_info=True)
             return None, None
 
+        # --- [ЗМІНА] Сортуємо та створюємо входи/виходи ---
+        potential_inputs.sort(key=lambda x: x[0]) # Сортуємо за Y-позицією
+        potential_outputs.sort(key=lambda x: x[0])
+
+        macro_inputs = []
+        macro_outputs = []
+
+        for i, (internal_y, original_conn_data, original_conn_obj) in enumerate(potential_inputs):
+            input_name = f"Вхід {i + 1}"
+            macro_input_node = MacroInputNode(name=input_name)
+            input_x = -macro_input_node.width - 50 # Розміщення зліва
+            # Розрахунок Y позиції для рівномірного розподілу
+            input_y = center_y + (i - (len(potential_inputs) -1) / 2) * 70
+            input_node_data = macro_input_node.to_data()
+            input_node_data['pos'] = (input_x, input_y)
+            internal_nodes_data.append(input_node_data)
+            log.debug(f"  Created MacroInputNode '{input_name}' at ({input_x:.1f}, {input_y:.1f})")
+
+            internal_target_node_id = old_id_to_new_id.get(original_conn_data['to_node'])
+            internal_target_socket_name = original_conn_data['to_socket']
+            input_info = {
+                'name': input_name,
+                'internal_node_id': internal_target_node_id,
+                'internal_socket_name': internal_target_socket_name,
+                'macro_input_node_id': input_node_data['id']
+            }
+            macro_inputs.append(input_info)
+            internal_connections_data.append({
+                 'from_node': input_node_data['id'], 'from_socket': 'out',
+                 'to_node': internal_target_node_id, 'to_socket': internal_target_socket_name
+            })
+            external_connections_info.append({
+                 'type': 'input', 'original_conn_data': original_conn_data, 'target_input_name': input_name,
+                 'original_conn': original_conn_obj # Зберігаємо оригінальний об'єкт з'єднання
+            })
+
+        for i, (internal_y, original_conn_data, original_conn_obj) in enumerate(potential_outputs):
+            output_name = f"Вихід {i + 1}"
+            macro_output_node = MacroOutputNode(name=output_name)
+            output_x = normalized_width + 50 # Розміщення справа
+            output_y = center_y + (i - (len(potential_outputs) -1) / 2) * 70
+            output_node_data = macro_output_node.to_data()
+            output_node_data['pos'] = (output_x, output_y)
+            internal_nodes_data.append(output_node_data)
+            log.debug(f"  Created MacroOutputNode '{output_name}' at ({output_x:.1f}, {output_y:.1f})")
+
+            internal_source_node_id = old_id_to_new_id.get(original_conn_data['from_node'])
+            internal_source_socket_name = original_conn_data['from_socket']
+            output_info = {
+                'name': output_name,
+                'internal_node_id': internal_source_node_id,
+                'internal_socket_name': internal_source_socket_name,
+                'macro_output_node_id': output_node_data['id']
+            }
+            macro_outputs.append(output_info)
+            internal_connections_data.append({
+                 'from_node': internal_source_node_id, 'from_socket': internal_source_socket_name,
+                 'to_node': output_node_data['id'], 'to_socket': 'in'
+            })
+            external_connections_info.append({
+                'type': 'output', 'original_conn_data': original_conn_data, 'source_output_name': output_name,
+                'original_conn': original_conn_obj # Зберігаємо оригінальний об'єкт з'єднання
+            })
+        # --- [КІНЕЦЬ ЗМІНИ] ---
+
+
         macro_data = {
             'id': macro_id, 'name': macro_name,
             'nodes': internal_nodes_data, 'connections': internal_connections_data,
-            'comments': internal_comments_data, 'frames': internal_frames_data, # Save comments/frames
+            'comments': internal_comments_data, 'frames': internal_frames_data,
             'inputs': macro_inputs, 'outputs': macro_outputs
         }
 
@@ -1528,4 +1597,5 @@ class CreateMacroCommand(QUndoCommand):
                  log.error(f" Error reconnecting external connection {info}: {e}", exc_info=True)
 
         return new_connections_refs
+
 

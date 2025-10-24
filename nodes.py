@@ -327,10 +327,17 @@ class BaseNode(QGraphicsItem):
                         other_socket.remove_connection(conn)
                    # Видаляємо саме з'єднання зі сцени
                    if conn.scene():
-                        conn.scene().removeItem(conn)
+                        try: # Додаємо try-except
+                             conn.scene().removeItem(conn)
+                        except Exception as e:
+                             log.error(f"Error removing connection during socket removal: {e}", exc_info=True)
               # Видаляємо сокет зі сцени
               if socket.scene():
-                   socket.scene().removeItem(socket)
+                   try: # Додаємо try-except
+                        socket.scene().removeItem(socket)
+                   except Exception as e:
+                        log.error(f"Error removing socket from scene: {e}", exc_info=True)
+
               log.debug(f"Removed socket '{name}' from node {self.id}")
 
     def clear_sockets(self):
@@ -432,7 +439,11 @@ class BaseNode(QGraphicsItem):
                     for conn in socket.connections:
                          # Ensure connection is also valid before updating
                          if conn and conn.scene():
-                              conn.update_path()
+                              try: # Додаємо try-except
+                                   conn.update_path()
+                              except Exception as e:
+                                   log.error(f"Error updating connection path for conn {getattr(conn, 'id', conn)} during node move: {e}", exc_info=True)
+
         return super().itemChange(change, value)
 
 
@@ -540,6 +551,7 @@ class BaseNode(QGraphicsItem):
 
     @classmethod
     def from_data(cls, data):
+        log.debug(f"BaseNode.from_data called with data: {data}") # Діагностика
         node_class_name = data.get('node_type') # This is now the class name
         node_class = BaseNode # Default fallback
 
@@ -550,35 +562,51 @@ class BaseNode(QGraphicsItem):
                 if registry_class.__name__ == node_class_name:
                     node_class = registry_class
                     found = True
+                    log.debug(f"Found class {node_class_name} in registry.") # Діагностика
                     break
             if not found: # If loop finished without break
                  log.warning(f"Node class '{node_class_name}' not found in NODE_REGISTRY. Using BaseNode.")
+                 node_class_name = "BaseNode (Fallback)" # Для логування
+        else:
+            log.warning(f"Node data is missing 'node_type'. Using BaseNode. Data: {data}")
+            node_class_name = "BaseNode (Missing Type)" # Для логування
 
         # Create instance
         try:
-             # Pass only relevant args if constructor expects them (unlikely here)
+             log.debug(f"Instantiating node of type: {node_class.__name__}") # Діагностика
              node = node_class() # Call constructor specific to the class
         except Exception as e:
-             log.error(f"Error instantiating node class '{node_class_name}': {e}. Falling back to BaseNode.", exc_info=True)
+             log.error(f"Error instantiating node class '{node_class_name}': {e}. Falling back to BaseNode. Data: {data}", exc_info=True)
              node = BaseNode() # Fallback safely
 
         # Set common attributes
-        node.id = data.get('id', generate_short_id())
-        # Use setters to ensure validation/updates if they exist
-        node.node_name = data.get('name', node_class.__name__) # Use class name as fallback name
-        node.description = data.get('description', '')
-        node.setPos(QPointF(*data.get('pos', (0, 0))))
-        # Ensure properties is a list, deepcopy might be safer if needed later
-        loaded_properties = data.get('properties', [])
-        node.properties = list(loaded_properties) if isinstance(loaded_properties, (list, tuple)) else []
+        try: # Додаємо try-except для безпеки
+            node.id = data.get('id', generate_short_id())
+            # Use setters to ensure validation/updates if they exist
+            node.node_name = data.get('name', node_class.__name__) # Use class name as fallback name
+            node.description = data.get('description', '')
+            node.setPos(QPointF(*data.get('pos', (0, 0))))
+            # Ensure properties is a list, deepcopy might be safer if needed later
+            loaded_properties = data.get('properties', [])
+            node.properties = list(loaded_properties) if isinstance(loaded_properties, (list, tuple)) else []
+            log.debug(f"Set common attributes for node {node.id} ({node_class_name}).") # Діагностика
+        except Exception as e:
+            log.error(f"Error setting common attributes for node {node.id}: {e}. Data: {data}", exc_info=True)
+            # Не перериваємо, спробуємо встановити специфічні атрибути
+
 
         # Set specific attributes (like macro_id)
-        if isinstance(node, MacroNode):
-            node.macro_id = data.get('macro_id')
-            # Dynamic sockets for MacroNode should be updated later
-            # when the full project data (including macro definitions) is available.
-            # We cannot do it here reliably.
+        try: # Додаємо try-except
+            if isinstance(node, MacroNode):
+                node.macro_id = data.get('macro_id')
+                log.debug(f"Set macro_id '{node.macro_id}' for MacroNode {node.id}.") # Діагностика
+                # Dynamic sockets for MacroNode should be updated later
+                # when the full project data (including macro definitions) is available.
+                # We cannot do it here reliably.
+        except Exception as e:
+            log.error(f"Error setting specific attributes for node {node.id}: {e}. Data: {data}", exc_info=True)
 
+        log.debug(f"Finished BaseNode.from_data for node {node.id}.") # Діагностика
         return node
 
 
@@ -954,11 +982,20 @@ class MacroNode(BaseNode):
 
     def update_sockets_from_definition(self, macro_data):
         """Оновлює сокети вузла на основі визначення макросу."""
+        # --- [ЗМІНА] Додано діагностичне логування ---
+        log.debug(f"Updating sockets for MacroNode {self.id} based on macro definition {macro_data.get('id')} ({macro_data.get('name')})")
+        # --- [КІНЕЦЬ ЗМІНИ] ---
+        # Зберігаємо інформацію про старі з'єднання
+        old_connections_info = {}
+        for socket_name, socket in self._sockets.items():
+            old_connections_info[socket_name] = [(conn.start_socket if conn.end_socket == socket else conn.end_socket,
+                                                  conn.start_socket == socket) for conn in socket.connections]
+
         self.clear_sockets() # Видаляємо старі сокети
-        log.debug(f"Updating sockets for MacroNode {self.id} based on macro {macro_data.get('id')}")
 
         inputs = macro_data.get('inputs', [])
         outputs = macro_data.get('outputs', [])
+        log.debug(f"  Macro definition has {len(inputs)} inputs and {len(outputs)} outputs.") # Діагностика
 
         # Розраховуємо нову висоту та позиції
         num_inputs = len(inputs)
@@ -969,6 +1006,7 @@ class MacroNode(BaseNode):
 
         # Перевіряємо, чи змінилася висота
         if self.height != required_height:
+            log.debug(f"  Changing node height from {self.height} to {required_height}") # Діагностика
             self.prepareGeometryChange() # Повідомляємо про зміну геометрії
             self.height = required_height
             self.rect.setRect(0, 0, self.width, self.height) # Оновлюємо прямокутник
@@ -980,16 +1018,48 @@ class MacroNode(BaseNode):
         # Створюємо вхідні сокети зліва
         for i, input_def in enumerate(inputs):
             socket_name = input_def['name'] # Використовуємо ім'я входу як ім'я сокету
-            y_pos = (i + 1) * required_height / (num_inputs + 1)
+            y_pos = (i + 1) * required_height / (num_inputs + 1) if num_inputs > 0 else required_height / 2
             self.add_socket(name=socket_name, is_output=False, position=QPointF(0, y_pos), display_name=socket_name)
-            log.debug(f"  Added input socket: '{socket_name}' at y={y_pos}")
+            log.debug(f"  Added input socket: '{socket_name}' at y={y_pos:.1f}") # Діагностика
 
         # Створюємо вихідні сокети справа
         for i, output_def in enumerate(outputs):
             socket_name = output_def['name']
-            y_pos = (i + 1) * required_height / (num_outputs + 1)
+            y_pos = (i + 1) * required_height / (num_outputs + 1) if num_outputs > 0 else required_height / 2
             self.add_socket(name=socket_name, is_output=True, position=QPointF(self.width, y_pos), display_name=socket_name)
-            log.debug(f"  Added output socket: '{socket_name}' at y={y_pos}")
+            log.debug(f"  Added output socket: '{socket_name}' at y={y_pos:.1f}") # Діагностика
+
+        # Відновлюємо з'єднання, якщо можливо
+        # --- [ЗМІНА] Додано логування для відновлення з'єднань ---
+        log.debug(f"Attempting to restore connections for MacroNode {self.id}")
+        if self.scene(): # Перевіряємо, чи вузол вже на сцені
+            for socket_name, connections in old_connections_info.items():
+                new_socket = self.get_socket(socket_name)
+                if new_socket:
+                    log.debug(f"  Restoring connections for socket '{socket_name}'")
+                    for other_socket, was_start in connections:
+                        if other_socket and other_socket.scene() and other_socket.parentItem() and other_socket.parentItem().scene(): # Перевіряємо валідність іншого сокета/вузла
+                            try:
+                                log.debug(f"    Attempting connection to {other_socket.parentItem().id}:{other_socket.socket_name}")
+                                start_sock = new_socket if was_start else other_socket
+                                end_sock = other_socket if was_start else new_socket
+                                # Перевірка на вже існуюче з'єднання
+                                already_exists = any(conn.end_socket == end_sock for conn in start_sock.connections)
+                                if not already_exists:
+                                    conn = Connection(start_sock, end_sock)
+                                    self.scene().addItem(conn)
+                                    log.debug(f"      Successfully restored connection.")
+                                else:
+                                    log.debug(f"      Connection already exists.")
+                            except Exception as e:
+                                log.error(f"      Error restoring connection for socket '{socket_name}': {e}", exc_info=True)
+                        else:
+                             log.warning(f"    Skipping connection restore for socket '{socket_name}': other socket/node is invalid or not on scene.")
+                else:
+                    log.warning(f"  Cannot restore connections for old socket '{socket_name}': new socket not found.")
+        else:
+             log.debug("  Skipping connection restoration: Node not yet added to scene.")
+        # --- [КІНЕЦЬ ЗМІНИ] ---
 
         self.update() # Оновлюємо вигляд
 
@@ -997,34 +1067,42 @@ class MacroNode(BaseNode):
         # Показуємо ім'я макросу, до якого він прив'язаний
         macro_name = "Не визначено"
         main_window = None
-        if self.scene() and self.scene().views():
-            view = self.scene().views()[0]
-            if hasattr(view, 'parent') and callable(view.parent):
-                parent_widget = view.parent()
-                # Проверяем, является ли родитель MainWindow
-                if 'main_window' in str(type(parent_widget)): # Не самый лучший способ, но работает
-                    main_window = parent_widget
+        # --- [ЗМІНА] Безпечніший спосіб отримати main_window ---
+        view = self.scene().views()[0] if self.scene() and self.scene().views() else None
+        if view and hasattr(view, 'parent') and callable(view.parent):
+             parent_widget = view.parent()
+             # Перевіряємо, чи батьківський віджет має атрибут project_data (краще, ніж перевірка типу)
+             if hasattr(parent_widget, 'project_data'):
+                  main_window = parent_widget
+        # --- [КІНЕЦЬ ЗМІНИ] ---
 
-        if self.macro_id and main_window and hasattr(main_window, 'project_data'):
+        if self.macro_id and main_window: # main_window вже перевірено на project_data
               macro_def = main_window.project_data.get('macros', {}).get(self.macro_id)
               if macro_def:
                    macro_name = macro_def.get('name', 'Без імені')
+              else: # Додано логування, якщо визначення не знайдено
+                   log.warning(f"Macro definition not found for macro_id '{self.macro_id}' in MacroNode {self.id}")
+                   macro_name = "Визначення відсутнє!"
+        elif not self.macro_id: # Додано логування, якщо macro_id відсутній
+             log.warning(f"macro_id is not set for MacroNode {self.id}")
+
         self.properties_text.setPlainText(f"Макрос: {macro_name}\nID: {self.macro_id or '?'}")
 
 
     def validate(self, config):
          main_window = None
-         if self.scene() and self.scene().views():
-             view = self.scene().views()[0]
-             if hasattr(view, 'parent') and callable(view.parent):
-                 parent_widget = view.parent()
-                 if 'main_window' in str(type(parent_widget)):
-                     main_window = parent_widget
+         # --- [ЗМІНА] Безпечніший спосіб отримати main_window ---
+         view = self.scene().views()[0] if self.scene() and self.scene().views() else None
+         if view and hasattr(view, 'parent') and callable(view.parent):
+              parent_widget = view.parent()
+              if hasattr(parent_widget, 'project_data'):
+                   main_window = parent_widget
+         # --- [КІНЕЦЬ ЗМІНИ] ---
 
          if not self.macro_id:
               self.set_validation_state(False, "Макровузол не прив'язаний до визначення макросу (відсутній macro_id).")
               return False
-         elif not main_window or not hasattr(main_window, 'project_data') or self.macro_id not in main_window.project_data.get('macros', {}):
+         elif not main_window or self.macro_id not in main_window.project_data.get('macros', {}): # Перевірка main_window додана
               self.set_validation_state(False, f"Визначення макросу з ID '{self.macro_id}' не знайдено в проекті.")
               return False
          else:
@@ -1038,19 +1116,24 @@ class MacroNode(BaseNode):
                    log.warning(f"Sockets on MacroNode {self.id} do not match definition {self.macro_id}. Attempting update.")
                    try:
                        self.update_sockets_from_definition(macro_data)
+                       # Повторно отримуємо імена сокетів ПІСЛЯ оновлення
                        current_input_names = {sock.socket_name for sock in self.get_input_sockets()}
                        current_output_names = {sock.socket_name for sock in self.get_output_sockets()}
                        if defined_input_names != current_input_names or defined_output_names != current_output_names:
+                           # Якщо і після оновлення не збігаються - помилка
+                           log.error(f"Failed to match sockets after update for MacroNode {self.id}. Defined: IN{defined_input_names}/OUT{defined_output_names}, Current: IN{current_input_names}/OUT{current_output_names}")
                            self.set_validation_state(False, "Невідповідність сокетів визначенню макросу (після спроби оновлення).")
                            return False
                        else:
-                            self.set_validation_state(True)
-                            return True
+                            log.info(f"Successfully updated sockets for MacroNode {self.id} to match definition.")
+                            self.set_validation_state(True) # Стан валідний після оновлення
+                            return True # Повертаємо True після успішного оновлення
                    except Exception as e:
                         log.error(f"Error auto-updating sockets for MacroNode {self.id}: {e}", exc_info=True)
                         self.set_validation_state(False, "Помилка оновлення сокетів за визначенням макросу.")
                         return False
 
+              # Якщо сокети збігалися одразу
               self.set_validation_state(True)
               return True
 
@@ -1062,8 +1145,9 @@ class MacroInputNode(BaseNode):
         log.debug(f"Initializing MacroInputNode with name: {name}")
         super().__init__(name=name, node_type="Вхід Макроса", color=QColor("#1abc9c"), icon=self.ICON)
         self.height = 50
+        # --- [ЗМІНА] Викликаємо _create_elements ПІСЛЯ зміни висоти ---
         self._create_elements()
-        # --- ИСПРАВЛЕНО: Пересоздаем сокеты после изменения высоты ---
+        # --- [ЗМІНА] Пересоздаем сокеты после изменения высоты ---
         self.clear_sockets() # Удаляем сокеты, созданные BaseNode с неправильной высотой
         self._create_sockets() # Создаем сокеты заново с правильной высотой
 
@@ -1075,23 +1159,44 @@ class MacroInputNode(BaseNode):
 
     def _create_elements(self):
         # Спрощений вигляд
-        self.rect = QGraphicsRectItem(0, 0, self.width, self.height, self)
-        self.rect.setBrush(self.node_color);
-        self.rect.setPen(QPen(Qt.GlobalColor.black, 1))
+        # Перевіряємо, чи елементи вже існують (може викликатись з __init__ базового класу)
+        if hasattr(self, 'rect'):
+             self.rect.setRect(0, 0, self.width, self.height)
+             self.rect.setBrush(self.node_color)
+        else:
+             self.rect = QGraphicsRectItem(0, 0, self.width, self.height, self)
+             self.rect.setBrush(self.node_color);
+             self.rect.setPen(QPen(Qt.GlobalColor.black, 1))
 
-        self.icon_text = QGraphicsTextItem(self.node_icon, self)
-        self.icon_text.setDefaultTextColor(Qt.GlobalColor.white);
-        self.icon_text.setFont(QFont("Arial", 16))
+        if hasattr(self, 'icon_text'):
+             self.icon_text.setPlainText(self.node_icon)
+        else:
+             self.icon_text = QGraphicsTextItem(self.node_icon, self)
+             self.icon_text.setDefaultTextColor(Qt.GlobalColor.white);
+             self.icon_text.setFont(QFont("Arial", 16))
+
         # Центрування іконки
         icon_rect = self.icon_text.boundingRect()
         self.icon_text.setPos((self.width - icon_rect.width()) / 2, (self.height - icon_rect.height()) / 2 - 10) # Трохи вище
 
-        self.name_text = QGraphicsTextItem(self.node_name, self)
-        self.name_text.setDefaultTextColor(QColor("#f0f0f0"));
-        self.name_text.setFont(QFont("Arial", 9, QFont.Weight.Bold));
+        if hasattr(self, 'name_text'):
+             self.name_text.setPlainText(self.node_name)
+        else:
+             self.name_text = QGraphicsTextItem(self.node_name, self)
+             self.name_text.setDefaultTextColor(QColor("#f0f0f0"));
+             self.name_text.setFont(QFont("Arial", 9, QFont.Weight.Bold));
+
         # Центрування назви під іконкою
         name_rect = self.name_text.boundingRect()
         self.name_text.setPos((self.width - name_rect.width()) / 2, self.height - name_rect.height() - 5)
+
+        # Видаляємо непотрібні елементи, якщо вони були створені базовим класом
+        if hasattr(self, 'type_text'):
+             if self.type_text.scene(): self.type_text.scene().removeItem(self.type_text)
+             del self.type_text
+        if hasattr(self, 'properties_text'):
+             if self.properties_text.scene(): self.properties_text.scene().removeItem(self.properties_text)
+             del self.properties_text
 
 
 class MacroOutputNode(BaseNode):
@@ -1101,8 +1206,9 @@ class MacroOutputNode(BaseNode):
         log.debug(f"Initializing MacroOutputNode with name: {name}")
         super().__init__(name=name, node_type="Вихід Макроса", color=QColor("#e67e22"), icon=self.ICON) # Помаранчевий
         self.height = 50
+        # --- [ЗМІНА] Викликаємо _create_elements ПІСЛЯ зміни висоти ---
         self._create_elements()
-        # --- ИСПРАВЛЕНО: Пересоздаем сокеты для консистентности, хотя здесь это не критично ---
+        # --- [ЗМІНА] Пересоздаем сокеты для консистентности, хотя здесь это не критично ---
         self.clear_sockets()
         self._create_sockets()
 
@@ -1114,21 +1220,39 @@ class MacroOutputNode(BaseNode):
 
     def _create_elements(self):
         # Спрощений вигляд, аналогічний входу
-        self.rect = QGraphicsRectItem(0, 0, self.width, self.height, self)
-        self.rect.setBrush(self.node_color);
-        self.rect.setPen(QPen(Qt.GlobalColor.black, 1))
+        if hasattr(self, 'rect'):
+             self.rect.setRect(0, 0, self.width, self.height)
+             self.rect.setBrush(self.node_color)
+        else:
+             self.rect = QGraphicsRectItem(0, 0, self.width, self.height, self)
+             self.rect.setBrush(self.node_color);
+             self.rect.setPen(QPen(Qt.GlobalColor.black, 1))
 
-        self.icon_text = QGraphicsTextItem(self.node_icon, self)
-        self.icon_text.setDefaultTextColor(Qt.GlobalColor.white);
-        self.icon_text.setFont(QFont("Arial", 16))
+        if hasattr(self, 'icon_text'):
+             self.icon_text.setPlainText(self.node_icon)
+        else:
+             self.icon_text = QGraphicsTextItem(self.node_icon, self)
+             self.icon_text.setDefaultTextColor(Qt.GlobalColor.white);
+             self.icon_text.setFont(QFont("Arial", 16))
         icon_rect = self.icon_text.boundingRect()
         self.icon_text.setPos((self.width - icon_rect.width()) / 2, (self.height - icon_rect.height()) / 2 - 10) # Трохи вище
 
-        self.name_text = QGraphicsTextItem(self.node_name, self)
-        self.name_text.setDefaultTextColor(QColor("#f0f0f0"));
-        self.name_text.setFont(QFont("Arial", 9, QFont.Weight.Bold));
+        if hasattr(self, 'name_text'):
+             self.name_text.setPlainText(self.node_name)
+        else:
+             self.name_text = QGraphicsTextItem(self.node_name, self)
+             self.name_text.setDefaultTextColor(QColor("#f0f0f0"));
+             self.name_text.setFont(QFont("Arial", 9, QFont.Weight.Bold));
         name_rect = self.name_text.boundingRect()
         self.name_text.setPos((self.width - name_rect.width()) / 2, self.height - name_rect.height() - 5)
+
+        # Видаляємо непотрібні елементи
+        if hasattr(self, 'type_text'):
+             if self.type_text.scene(): self.type_text.scene().removeItem(self.type_text)
+             del self.type_text
+        if hasattr(self, 'properties_text'):
+             if self.properties_text.scene(): self.properties_text.scene().removeItem(self.properties_text)
+             del self.properties_text
 
 
 # --- Кінець нових класів ---
@@ -1582,3 +1706,4 @@ class FrameItem(QGraphicsItem):
         frame.setPos(QPointF(*data.get('pos', (0,0))))
         frame.resize_handle.setVisible(False) # Сховати ручку спочатку
         return frame
+

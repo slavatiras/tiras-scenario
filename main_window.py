@@ -25,7 +25,6 @@ from simulator import ScenarioSimulator
 # --- ИСПРАВЛЕНО: Импортируем константы из нового файла ---
 from constants import EDIT_MODE_SCENARIO, EDIT_MODE_MACRO
 
-
 log = logging.getLogger(__name__)
 
 DEVICE_SPECS = {
@@ -33,6 +32,7 @@ DEVICE_SPECS = {
     "PUIZ 2": {"type": "Пристрій індикації", "outputs": 0, "zones": 2},
     "ППКП Tiras-8L": {"type": "Базовий прилад", "outputs": 2, "zones": 8}
 }
+
 
 # --- ИСПРАВЛЕНО: Убираем определение констант отсюда ---
 # # Определяем режимы редактирования
@@ -48,11 +48,11 @@ class MainWindow(QMainWindow):
         self.project_data = {}
         self.active_scenario_id = None;
         self.active_macro_id = None  # ID макроса, который сейчас редактируется
-        self.current_edit_mode = EDIT_MODE_SCENARIO # Текущий режим
-        self.previous_scenario_id = None # Для возврата из макроса
+        self.current_edit_mode = EDIT_MODE_SCENARIO  # Текущий режим
+        self.previous_scenario_id = None  # Для возврата из макроса
         self.current_selected_node = None
         self._old_scenario_name = None
-        self._old_macro_name = None # Для переименования макросов
+        self._old_macro_name = None  # Для переименования макросов
         self.undo_stack = QUndoStack(self)
         self.props_apply_timer = QTimer(self)
         self.props_apply_timer.setSingleShot(True)
@@ -68,7 +68,7 @@ class MainWindow(QMainWindow):
         # Toolbars создаются динамически в _update_toolbars
         self._create_simulation_toolbar()
         self._create_panels()
-        self._update_toolbars() # Создаем начальный toolbar
+        self._update_toolbars()  # Создаем начальный toolbar
         self.scene.selectionChanged.connect(self.on_selection_changed)
         self.undo_stack.indexChanged.connect(lambda: QTimer.singleShot(1, self.validate_current_view))
         self.undo_stack.indexChanged.connect(self._update_simulation_trigger_zones)
@@ -79,7 +79,8 @@ class MainWindow(QMainWindow):
     def _update_window_title(self):
         base_title = "Редактор сценаріїв Tiras"
         if self.current_edit_mode == EDIT_MODE_MACRO and self.active_macro_id:
-            macro_name = self.project_data.get('macros', {}).get(self.active_macro_id, {}).get('name', self.active_macro_id)
+            macro_name = self.project_data.get('macros', {}).get(self.active_macro_id, {}).get('name',
+                                                                                               self.active_macro_id)
             self.setWindowTitle(f"{base_title} - [Макрос: {macro_name}]")
         elif self.current_edit_mode == EDIT_MODE_SCENARIO and self.active_scenario_id:
             self.setWindowTitle(f"{base_title} - [{self.active_scenario_id}]")
@@ -136,14 +137,13 @@ class MainWindow(QMainWindow):
 
         if self.current_edit_mode == EDIT_MODE_SCENARIO:
             self._create_scenario_toolbar()
-            self.back_to_scenario_action.setEnabled(False) # Нельзя вернуться из сценария
+            self.back_to_scenario_action.setEnabled(False)  # Нельзя вернуться из сценария
         elif self.current_edit_mode == EDIT_MODE_MACRO:
             self._create_macro_toolbar()
-            self.back_to_scenario_action.setEnabled(True) # Можно вернуться из макроса
+            self.back_to_scenario_action.setEnabled(True)  # Можно вернуться из макроса
 
         # Обновляем видимость панели симуляции
         self.sim_toolbar.setVisible(self.current_edit_mode == EDIT_MODE_SCENARIO)
-
 
     def _create_scenario_toolbar(self):
         self.scenario_toolbar = QToolBar("Основна панель")
@@ -174,12 +174,12 @@ class MainWindow(QMainWindow):
 
         # Кнопки для добавления Входа и Выхода
         for node_type in ["Вхід Макроса", "Вихід Макроса"]:
-             node_class = NODE_REGISTRY[node_type]
-             icon = getattr(node_class, 'ICON', '●')
-             action = QAction(icon, self)
-             action.setToolTip(f"Додати вузол '{node_type}'")
-             action.triggered.connect(lambda checked=False, nt=node_type: self._on_toolbar_action_triggered(nt))
-             self.macro_toolbar.addAction(action)
+            node_class = NODE_REGISTRY[node_type]
+            icon = getattr(node_class, 'ICON', '●')
+            action = QAction(icon, self)
+            action.setToolTip(f"Додати вузол '{node_type}'")
+            action.triggered.connect(lambda checked=False, nt=node_type: self._on_toolbar_action_triggered(nt))
+            self.macro_toolbar.addAction(action)
 
         # Можно добавить и другие полезные узлы для макросов (Delay, Condition и т.д.)
         # self.macro_toolbar.addSeparator()
@@ -190,7 +190,6 @@ class MainWindow(QMainWindow):
         #      action.setToolTip(f"Додати вузол '{node_type}'")
         #      action.triggered.connect(lambda checked=False, nt=node_type: self._on_toolbar_action_triggered(nt))
         #      self.macro_toolbar.addAction(action)
-
 
     def _create_simulation_toolbar(self):
         self.sim_toolbar = QToolBar("Панель симуляції")
@@ -216,7 +215,6 @@ class MainWindow(QMainWindow):
         self.sim_trigger_zone_combo.currentIndexChanged.connect(self.update_simulation_controls)
         self.sim_toolbar.addWidget(QLabel("  Зона тригера: "))
         self.sim_toolbar.addWidget(self.sim_trigger_zone_combo)
-
 
     def _on_toolbar_action_triggered(self, node_type):
         self.add_node(node_type, self.view.mapToScene(self.view.viewport().rect().center()))
@@ -245,8 +243,8 @@ class MainWindow(QMainWindow):
         macros_layout.addWidget(self.macros_list)
         macros_btn_layout = QHBoxLayout()
         remove_macro_btn = QPushButton("Видалити")
-        rename_macro_btn = QPushButton("Перейменувати") # Добавлена кнопка
-        macros_btn_layout.addWidget(rename_macro_btn) # Добавлена кнопка
+        rename_macro_btn = QPushButton("Перейменувати")  # Добавлена кнопка
+        macros_btn_layout.addWidget(rename_macro_btn)  # Добавлена кнопка
         macros_btn_layout.addWidget(remove_macro_btn)
         macros_layout.addLayout(macros_btn_layout)
 
@@ -254,7 +252,6 @@ class MainWindow(QMainWindow):
         self.project_tabs.addTab(macros_widget, "Макроси")
         project_dock.setWidget(self.project_tabs)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, project_dock)
-
 
         nodes_dock = QDockWidget("Елементи сценарію", self);
         self.nodes_list = QListWidget()
@@ -333,11 +330,12 @@ class MainWindow(QMainWindow):
         add_scenario_btn.clicked.connect(lambda: self.add_scenario())
         remove_scenario_btn.clicked.connect(self.remove_scenario)
         remove_macro_btn.clicked.connect(self.remove_macro)
-        rename_macro_btn.clicked.connect(self.rename_macro) # Добавлено
+        rename_macro_btn.clicked.connect(self.rename_macro)  # Добавлено
         self.scenarios_list.currentItemChanged.connect(self.on_active_scenario_changed)
         self.scenarios_list.itemDoubleClicked.connect(self.on_scenario_item_double_clicked)
         self.scenarios_list.itemChanged.connect(self.on_scenario_renamed)
-        self.macros_list.itemDoubleClicked.connect(self.on_macro_item_double_clicked) # Подключаем двойной клик для макросов
+        self.macros_list.itemDoubleClicked.connect(
+            self.on_macro_item_double_clicked)  # Подключаем двойной клик для макросов
         self.nodes_list.itemClicked.connect(self.on_node_list_clicked)
         add_device_btn.clicked.connect(self.add_device)
         remove_device_btn.clicked.connect(self.remove_device)
@@ -347,7 +345,7 @@ class MainWindow(QMainWindow):
         self.zones_table.itemChanged.connect(self.on_config_table_changed)
         self.outputs_table.itemChanged.connect(self.on_config_table_changed)
         self.users_table.itemChanged.connect(self.on_config_table_changed)
-        self.project_tabs.currentChanged.connect(self.on_project_tab_changed) # Смена вкладки Проекта
+        self.project_tabs.currentChanged.connect(self.on_project_tab_changed)  # Смена вкладки Проекта
 
     def on_project_tab_changed(self, index):
         # Если переключились на вкладку сценариев и редактировали макрос, возвращаемся
@@ -364,7 +362,7 @@ class MainWindow(QMainWindow):
             items = sorted([name for name in NODE_REGISTRY.keys() if name not in ["Вхід Макроса", "Вихід Макроса"]])
         elif self.current_edit_mode == EDIT_MODE_MACRO:
             # Показываем только узлы входа/выхода и, возможно, базовые (опционально)
-            items = sorted(["Вхід Макроса", "Вихід Макроса", "Затримка", "Умова: Стан зони", "Повтор"]) # Пример
+            items = sorted(["Вхід Макроса", "Вихід Макроса", "Затримка", "Умова: Стан зони", "Повтор"])  # Пример
         self.nodes_list.addItems(items)
 
     def setup_properties_panel(self):
@@ -374,7 +372,7 @@ class MainWindow(QMainWindow):
             widget = item.widget()
             if widget:
                 widget.deleteLater()
-            else: # Handle layout items or spacers
+            else:  # Handle layout items or spacers
                 layout_item = item.layout()
                 if layout_item:
                     # Recursively delete widgets in the layout
@@ -384,7 +382,7 @@ class MainWindow(QMainWindow):
                             child.widget().deleteLater()
                     layout_item.deleteLater()
                 elif item.spacerItem():
-                     pass # Spacers don't need deletion
+                    pass  # Spacers don't need deletion
 
         self.base_props_widget = QWidget()
         base_props_layout = QFormLayout(self.base_props_widget)
@@ -471,7 +469,6 @@ class MainWindow(QMainWindow):
         spacer = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
         self.main_props_layout.addSpacerItem(spacer)
 
-
     def _schedule_properties_apply(self):
         if self.props_widget.isEnabled():
             self.props_apply_timer.start()
@@ -488,15 +485,14 @@ class MainWindow(QMainWindow):
 
         # Если ничего не выбрано, но был выбранный узел, сбрасываем его
         if not newly_selected_node:
-             self.current_selected_node = None
+            self.current_selected_node = None
         # Иначе обновляем текущий выбранный узел
         elif newly_selected_node != self.current_selected_node:
-             self.current_selected_node = newly_selected_node
+            self.current_selected_node = newly_selected_node
 
         # Включаем/выключаем панель в зависимости от того, выбран ли узел
         self.props_widget.setEnabled(self.current_selected_node is not None)
         self._update_properties_panel_ui()
-
 
     def _update_properties_panel_ui(self):
         node = self.current_selected_node if self.props_widget.isEnabled() else None
@@ -513,10 +509,11 @@ class MainWindow(QMainWindow):
 
         # Показываем базовую панель, если что-то выбрано
         self.base_props_widget.setVisible(is_node_selected)
-        # Отключаем редактирование имени для узлов Вход/Выход макроса
-        is_macro_io_node = isinstance(node, (MacroInputNode, MacroOutputNode))
-        self.prop_name.setEnabled(not is_macro_io_node)
 
+        # --- ЗМІНЕНО: Дозволяємо редагування імені для всіх вузлів ---
+        # is_macro_io_node = isinstance(node, (MacroInputNode, MacroOutputNode))
+        self.prop_name.setEnabled(is_node_selected)  # Завжди ввімкнено, якщо вузол вибрано
+        # --- КІНЕЦЬ ЗМІНИ ---
 
         if is_node_selected:
             self.prop_name.blockSignals(True)
@@ -527,13 +524,20 @@ class MainWindow(QMainWindow):
             self.prop_description.blockSignals(False)
 
             # Показываем нужную специфичную панель
-            if isinstance(node, TriggerNode): self._update_trigger_props_ui(); self.trigger_props_widget.setVisible(True)
-            elif isinstance(node, (ActivateOutputNode, DeactivateOutputNode)): self._update_output_props_ui(); self.output_props_widget.setVisible(True)
-            elif isinstance(node, DelayNode): self._update_delay_props_ui(); self.delay_props_widget.setVisible(True)
-            elif isinstance(node, SendSMSNode): self._update_sms_props_ui(); self.sms_props_widget.setVisible(True)
-            elif isinstance(node, ConditionNodeZoneState): self._update_condition_props_ui(); self.condition_props_widget.setVisible(True)
-            elif isinstance(node, RepeatNode): self._update_repeat_props_ui(); self.repeat_props_widget.setVisible(True)
-            elif isinstance(node, MacroNode): self._update_macro_props_ui(); self.macro_props_widget.setVisible(True)
+            if isinstance(node, TriggerNode):
+                self._update_trigger_props_ui(); self.trigger_props_widget.setVisible(True)
+            elif isinstance(node, (ActivateOutputNode, DeactivateOutputNode)):
+                self._update_output_props_ui(); self.output_props_widget.setVisible(True)
+            elif isinstance(node, DelayNode):
+                self._update_delay_props_ui(); self.delay_props_widget.setVisible(True)
+            elif isinstance(node, SendSMSNode):
+                self._update_sms_props_ui(); self.sms_props_widget.setVisible(True)
+            elif isinstance(node, ConditionNodeZoneState):
+                self._update_condition_props_ui(); self.condition_props_widget.setVisible(True)
+            elif isinstance(node, RepeatNode):
+                self._update_repeat_props_ui(); self.repeat_props_widget.setVisible(True)
+            elif isinstance(node, MacroNode):
+                self._update_macro_props_ui(); self.macro_props_widget.setVisible(True)
 
         else:
             self.prop_name.clear()
@@ -655,12 +659,12 @@ class MainWindow(QMainWindow):
         node = self.current_selected_node
         old_name = node.node_name
         old_desc = node.description
-        old_props = [p for p in node.properties] # Копируем список
-        old_macro_id = getattr(node, 'macro_id', None) # Безопасное получение
+        old_props = [p for p in node.properties]  # Копируем список
+        old_macro_id = getattr(node, 'macro_id', None)  # Безопасное получение
 
         new_name = self.prop_name.text()
         new_desc = self.prop_description.toPlainText()
-        new_props_list = old_props # По умолчанию сохраняем старые
+        new_props_list = old_props  # По умолчанию сохраняем старые
         new_macro_id = old_macro_id
 
         # Обработка специфичных свойств
@@ -686,21 +690,46 @@ class MainWindow(QMainWindow):
         elif isinstance(node, RepeatNode):
             new_props_list = [('count', self.repeat_count_spinbox.value())]
         elif isinstance(node, MacroNode):
-            new_macro_id = self.macro_definition_combo.currentData() or None # None если "Не призначено"
+            new_macro_id = self.macro_definition_combo.currentData() or None  # None если "Не призначено"
+        # --- ЗМІНЕНО: Дозволяємо редагування імені ---
         elif isinstance(node, (MacroInputNode, MacroOutputNode)):
-             # Для входов/выходов макроса имя берется из prop_name, но не меняется здесь
-             new_name = old_name # Имя не меняем через общую панель
-             # TODO: Нужно ли здесь обновлять имя в определении макроса? Пока нет.
+            # Имя теперь можно редактировать
+            new_name = self.prop_name.text()
+            # Обновление определения макроса будет ниже
+        # --- КІНЕЦЬ ЗМІНИ ---
 
         old_data = {'name': old_name, 'desc': old_desc, 'props': old_props, 'macro_id': old_macro_id}
         new_data = {'name': new_name, 'desc': new_desc, 'props': new_props_list, 'macro_id': new_macro_id}
 
         if old_data != new_data:
+            # --- ДОДАНО: Оновлення імені у визначенні макросу ---
+            if self.current_edit_mode == EDIT_MODE_MACRO and self.active_macro_id and isinstance(node, (MacroInputNode,
+                                                                                                        MacroOutputNode)):
+                log.debug(f"Updating macro definition IO name for node {node.id}")
+                try:
+                    macro_def = self.project_data['macros'][self.active_macro_id]
+                    io_list_key = 'inputs' if isinstance(node, MacroInputNode) else 'outputs'
+                    node_id_key = 'macro_input_node_id' if isinstance(node, MacroInputNode) else 'macro_output_node_id'
+
+                    found = False
+                    for io_def in macro_def.get(io_list_key, []):
+                        if io_def.get(node_id_key) == node.id:
+                            log.debug(
+                                f"Found matching IO definition. Changing name from '{io_def.get('name')}' to '{new_name}'")
+                            io_def['name'] = new_name
+                            found = True
+                            break
+                    if not found:
+                        log.warning(
+                            f"Could not find matching IO definition for node {node.id} in macro {self.active_macro_id}")
+                except Exception as e:
+                    log.error(f"Error updating macro IO definition name: {e}", exc_info=True)
+            # --- КІНЕЦЬ ДОДАВАННЯ ---
+
             # --- ИСПРАВЛЕНО: Импортируем ChangePropertiesCommand здесь ---
             from commands import ChangePropertiesCommand
             command = ChangePropertiesCommand(node, old_data, new_data)
             self.undo_stack.push(command)
-
 
     # --- (Методы add_device, remove_device, add_config_item, remove_config_item, on_config_table_changed остаются) ---
     def update_config_ui(self):
@@ -747,7 +776,7 @@ class MainWindow(QMainWindow):
         self.zones_table.blockSignals(False)
         self.outputs_table.blockSignals(False)
         self.users_table.blockSignals(False)
-        self.validate_current_view() # Используем новый метод валидации
+        self.validate_current_view()  # Используем новый метод валидации
         if self.current_selected_node: self.on_selection_changed()
 
     def add_device(self):
@@ -826,6 +855,7 @@ class MainWindow(QMainWindow):
     def add_node(self, node_type, position):
         # --- ИСПРАВЛЕНО: Импортируем AddNodeCommand здесь ---
         from commands import AddNodeCommand
+        log.debug(f"Attempting to add node: {node_type} in mode {self.current_edit_mode}")  # DIAGNOSTIC
 
         if self.current_edit_mode == EDIT_MODE_SCENARIO and self.active_scenario_id is None:
             self.show_status_message("Спочатку виберіть або створіть сценарій.", 5000, color="orange")
@@ -836,25 +866,29 @@ class MainWindow(QMainWindow):
 
         # Запрет добавления триггера в макрос
         if self.current_edit_mode == EDIT_MODE_MACRO and node_type == "Тригер":
-             self.show_status_message("Помилка: Тригер не можна додавати всередині макросу.", 5000, color="red")
-             return
+            log.warning("add_node: Blocked adding TriggerNode to macro.")  # DIAGNOSTIC
+            self.show_status_message("Помилка: Тригер не можна додавати всередині макросу.", 5000, color="red")
+            return
         # Запрет добавления макро-узла в макрос (предотвращение рекурсии)
         if self.current_edit_mode == EDIT_MODE_MACRO and node_type == "Макрос":
-             self.show_status_message("Помилка: Макрос не можна додавати всередині іншого макросу.", 5000, color="red")
-             return
+            log.warning("add_node: Blocked adding MacroNode to macro.")  # DIAGNOSTIC
+            self.show_status_message("Помилка: Макрос не можна додавати всередині іншого макросу.", 5000, color="red")
+            return
 
-        # Проверка на дублирование MacroInput/Output в макросе
-        if self.current_edit_mode == EDIT_MODE_MACRO:
-             node_class = NODE_REGISTRY.get(node_type)
-             if node_class in (MacroInputNode, MacroOutputNode):
-                  existing_nodes = [item for item in self.scene.items() if isinstance(item, node_class)]
-                  if existing_nodes:
-                       # Можно разрешить несколько, но нужно будет управлять именами
-                       self.show_status_message(f"Помилка: Вузол '{node_type}' вже існує в цьому макросі.", 5000, color="red")
-                       return
-
+        # --- ЗМІНЕНО: Прибираємо перевірку на дублювання MacroInput/Output ---
+        # node_class = NODE_REGISTRY.get(node_type)
+        # if self.current_edit_mode == EDIT_MODE_MACRO:
+        #      if node_class in (MacroInputNode, MacroOutputNode):
+        #           existing_nodes = [item for item in self.scene.items() if isinstance(item, node_class)]
+        #           if existing_nodes:
+        #                log.warning(f"add_node: Blocked adding duplicate {node_type}.") # DIAGNOSTIC
+        #                self.show_status_message(f"Помилка: Вузол '{node_type}' вже існує в цьому макросі.", 5000, color="red")
+        #                return
+        log.debug(f"add_node: Allowing add for {node_type}.")  # DIAGNOSTIC
+        # --- КІНЕЦЬ ЗМІНИ ---
 
         if node_type == "Тригер" and any(isinstance(i, TriggerNode) for i in self.scene.items()):
+            log.warning("add_node: Blocked adding duplicate TriggerNode.")  # DIAGNOSTIC
             self.show_status_message("Помилка: Тригер у сценарії може бути лише один.", 5000, color="red")
             return
         if node_type in NODE_REGISTRY:
@@ -868,7 +902,7 @@ class MainWindow(QMainWindow):
         self.scene.clear();
         self.project_data = {
             'scenarios': {},
-            'macros': {}, # Добавляем раздел для макросов
+            'macros': {},  # Добавляем раздел для макросов
             'config': {
                 'devices': [],
                 'users': [{'id': str(uuid.uuid4()), 'name': 'Адміністратор', 'phone': '+380000000000'}]
@@ -917,12 +951,11 @@ class MainWindow(QMainWindow):
         self.active_scenario_id = None
         self.update_scenarios_list();
         if self.scenarios_list.count() > 0:
-            self.scenarios_list.setCurrentRow(0) # Переключаемся на первый
+            self.scenarios_list.setCurrentRow(0)  # Переключаемся на первый
         else:
-            self.scene.clear() # Очищаем сцену, если сценариев не осталось
-            self.set_edit_mode(EDIT_MODE_SCENARIO) # На всякий случай
+            self.scene.clear()  # Очищаем сцену, если сценариев не осталось
+            self.set_edit_mode(EDIT_MODE_SCENARIO)  # На всякий случай
         self.undo_stack.clear()
-
 
     def remove_macro(self):
         current_item = self.macros_list.currentItem()
@@ -937,23 +970,22 @@ class MainWindow(QMainWindow):
         usage_scenarios = []
         for scenario_id, scenario_data in self.project_data.get('scenarios', {}).items():
             for node_data in scenario_data.get('nodes', []):
-                 if node_data.get('node_type') == 'MacroNode' and node_data.get('macro_id') == macro_id_to_remove:
-                      usage_count += 1
-                      if scenario_id not in usage_scenarios:
-                           usage_scenarios.append(scenario_id)
+                if node_data.get('node_type') == 'MacroNode' and node_data.get('macro_id') == macro_id_to_remove:
+                    usage_count += 1
+                    if scenario_id not in usage_scenarios:
+                        usage_scenarios.append(scenario_id)
 
         if usage_count > 0:
-             QMessageBox.warning(self, "Неможливо видалити макрос",
-                                 f"Макрос '{macro_name}' використовується у {usage_count} вузлах сценаріїв:\n"
-                                 f"{', '.join(usage_scenarios)}\nСпочатку видаліть ці вузли.")
-             return
+            QMessageBox.warning(self, "Неможливо видалити макрос",
+                                f"Макрос '{macro_name}' використовується у {usage_count} вузлах сценаріїв:\n"
+                                f"{', '.join(usage_scenarios)}\nСпочатку видаліть ці вузли.")
+            return
 
         reply = QMessageBox.question(self, "Видалення Макросу",
                                      f"Ви впевнені, що хочете видалити макрос '{macro_name}'?",
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                      QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.No: return
-
 
         if macro_id_to_remove:
             if self.active_macro_id == macro_id_to_remove:
@@ -993,12 +1025,11 @@ class MainWindow(QMainWindow):
             if self.active_macro_id == macro_id:
                 self._update_window_title()
 
-
     def on_scenario_item_double_clicked(self, item):
         # Если мы в режиме макроса, возвращаемся
         if self.current_edit_mode == EDIT_MODE_MACRO:
-             if not self.return_to_scenario(): # Если возврат не удался (например, отменен)
-                  return
+            if not self.return_to_scenario():  # Если возврат не удался (например, отменен)
+                return
         # Теперь позволяем редактировать имя сценария
         self._old_scenario_name = item.text()
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
@@ -1012,26 +1043,25 @@ class MainWindow(QMainWindow):
     def on_scenario_renamed(self, item):
         new_name = item.text().strip()
         old_name = self._old_scenario_name
-        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable) # Снимаем флаг редактирования
+        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # Снимаем флаг редактирования
 
         if not new_name or not old_name or new_name == old_name:
-            if old_name: item.setText(old_name) # Возвращаем старое имя, если новое пустое или не изменилось
+            if old_name: item.setText(old_name)  # Возвращаем старое имя, если новое пустое или не изменилось
             self._old_scenario_name = None
             return
 
         if new_name in self.project_data['scenarios']:
             QMessageBox.warning(self, "Помилка перейменування", "Сценарій з такою назвою вже існує.")
-            item.setText(old_name) # Возвращаем старое имя
+            item.setText(old_name)  # Возвращаем старое имя
             self._old_scenario_name = None
             return
 
         self.project_data['scenarios'][new_name] = self.project_data['scenarios'].pop(old_name)
         if self.active_scenario_id == old_name:
             self.active_scenario_id = new_name
-            self._update_window_title() # Обновляем заголовок
+            self._update_window_title()  # Обновляем заголовок
 
         self._old_scenario_name = None
-
 
     def on_active_scenario_changed(self, current_item, previous_item):
         # Этот слот вызывается ТОЛЬКО для списка сценариев
@@ -1039,11 +1069,11 @@ class MainWindow(QMainWindow):
         if self.current_edit_mode == EDIT_MODE_MACRO:
             # Восстанавливаем выбор сценария, если он был
             if self.previous_scenario_id:
-                 items = self.scenarios_list.findItems(self.previous_scenario_id, Qt.MatchFlag.MatchExactly)
-                 if items:
-                      self.scenarios_list.blockSignals(True)
-                      self.scenarios_list.setCurrentItem(items[0])
-                      self.scenarios_list.blockSignals(False)
+                items = self.scenarios_list.findItems(self.previous_scenario_id, Qt.MatchFlag.MatchExactly)
+                if items:
+                    self.scenarios_list.blockSignals(True)
+                    self.scenarios_list.setCurrentItem(items[0])
+                    self.scenarios_list.blockSignals(False)
             return
 
         # Нормальная обработка смены сценария
@@ -1078,18 +1108,17 @@ class MainWindow(QMainWindow):
         self.current_selected_node = None
         self.on_selection_changed()
 
-
     def edit_macro(self, macro_id):
         if self.current_edit_mode == EDIT_MODE_MACRO and self.active_macro_id == macro_id:
-            return # Уже редактируем этот макрос
+            return  # Уже редактируем этот макрос
 
         if macro_id not in self.project_data.get('macros', {}):
-             log.error(f"Cannot edit macro: ID {macro_id} not found.")
-             return
+            log.error(f"Cannot edit macro: ID {macro_id} not found.")
+            return
 
         # Сохраняем текущее состояние (сценария)
         self.save_current_state()
-        self.previous_scenario_id = self.active_scenario_id # Запоминаем сценарий
+        self.previous_scenario_id = self.active_scenario_id  # Запоминаем сценарий
 
         self.active_scenario_id = None
         self.active_macro_id = macro_id
@@ -1103,7 +1132,6 @@ class MainWindow(QMainWindow):
             self.macros_list.blockSignals(True)
             self.macros_list.setCurrentItem(items[0])
             self.macros_list.blockSignals(False)
-
 
     def return_to_scenario(self, force_return=False):
         if self.current_edit_mode != EDIT_MODE_MACRO: return True
@@ -1130,7 +1158,7 @@ class MainWindow(QMainWindow):
             # Если нет предыдущего сценария (или он был удален),
             # загружаем первый попавшийся или очищаем сцену
             if self.scenarios_list.count() > 0:
-                self.scenarios_list.setCurrentRow(0) # Загрузит первый сценарий
+                self.scenarios_list.setCurrentRow(0)  # Загрузит первый сценарий
             else:
                 self.active_scenario_id = None
                 self.scene.clear()
@@ -1140,14 +1168,12 @@ class MainWindow(QMainWindow):
         self.project_tabs.setCurrentIndex(0)
         return True
 
-
     def save_current_state(self):
         """Сохраняет состояние текущего редактируемого элемента (сценария или макроса)."""
         if self.current_edit_mode == EDIT_MODE_SCENARIO:
             self.save_current_scenario_state()
         elif self.current_edit_mode == EDIT_MODE_MACRO:
             self.save_macro_state()
-
 
     def save_current_scenario_state(self):
         if not self.active_scenario_id or self.active_scenario_id not in self.project_data['scenarios']: return
@@ -1157,10 +1183,14 @@ class MainWindow(QMainWindow):
             if hasattr(item, 'to_data'):
                 data = item.to_data()
                 if not data: continue
-                if isinstance(item, BaseNode): nodes_data.append(data)
-                elif isinstance(item, Connection): connections_data.append(data)
-                elif isinstance(item, CommentItem): comments_data.append(data)
-                elif isinstance(item, FrameItem): frames_data.append(data)
+                if isinstance(item, BaseNode):
+                    nodes_data.append(data)
+                elif isinstance(item, Connection):
+                    connections_data.append(data)
+                elif isinstance(item, CommentItem):
+                    comments_data.append(data)
+                elif isinstance(item, FrameItem):
+                    frames_data.append(data)
         self.project_data['scenarios'][self.active_scenario_id] = {
             'nodes': nodes_data,
             'connections': connections_data,
@@ -1184,12 +1214,12 @@ class MainWindow(QMainWindow):
                 if not data: continue
                 if isinstance(item, MacroInputNode):
                     inputs_list.append({
-                        'name': item.node_name, # Имя берем из узла
+                        'name': item.node_name,  # Имя берем из узла
                         # 'internal_node_id': '', # Не используется при сохранении
                         # 'internal_socket_name': '',
-                        'macro_input_node_id': item.id # Сохраняем ID узла входа
+                        'macro_input_node_id': item.id  # Сохраняем ID узла входа
                     })
-                    nodes_data.append(data) # Сам узел тоже сохраняем
+                    nodes_data.append(data)  # Сам узел тоже сохраняем
                 elif isinstance(item, MacroOutputNode):
                     outputs_list.append({
                         'name': item.node_name,
@@ -1198,7 +1228,7 @@ class MainWindow(QMainWindow):
                         'macro_output_node_id': item.id
                     })
                     nodes_data.append(data)
-                elif isinstance(item, BaseNode): # Остальные узлы
+                elif isinstance(item, BaseNode):  # Остальные узлы
                     nodes_data.append(data)
                 elif isinstance(item, Connection):
                     connections_data.append(data)
@@ -1215,14 +1245,13 @@ class MainWindow(QMainWindow):
         # которые его используют, т.к. могли измениться входы/выходы.
         self.update_macro_nodes_in_scenarios(self.active_macro_id)
 
-
     def load_macro_state(self, macro_id):
         """Загружает состояние макроса в редактор."""
         self.scene.clear()
         macro_data = self.project_data.get('macros', {}).get(macro_id)
         if not macro_data:
-             log.error(f"Cannot load macro state: ID {macro_id} not found.")
-             return
+            log.error(f"Cannot load macro state: ID {macro_id} not found.")
+            return
 
         log.debug(f"Loading state for macro: {macro_id}")
         nodes_map = {}
@@ -1238,7 +1267,6 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 log.error(f"Failed to load node from macro data {node_data}: {e}", exc_info=True)
 
-
         for conn_data in macro_data.get('connections', []):
             start_node = nodes_map.get(conn_data['from_node'])
             end_node = nodes_map.get(conn_data['to_node'])
@@ -1250,14 +1278,13 @@ class MainWindow(QMainWindow):
                 else:
                     log.warning(f"Could not create macro connection, socket not found: {conn_data}")
             else:
-                 log.warning(f"Could not create macro connection, node not found: {conn_data}")
+                log.warning(f"Could not create macro connection, node not found: {conn_data}")
 
         # Комментарии/фреймы пока не загружаем для макросов
 
-        QTimer.singleShot(1, self._update_all_items_properties) # Обновляем отображение
+        QTimer.singleShot(1, self._update_all_items_properties)  # Обновляем отображение
         # Валидация для макроса может быть другой
         # self.validate_macro()
-
 
     def update_macro_nodes_in_scenarios(self, updated_macro_id):
         """Обновляет сокеты всех узлов MacroNode, ссылающихся на измененный макрос."""
@@ -1269,18 +1296,17 @@ class MainWindow(QMainWindow):
         for scenario_id, scenario_data in self.project_data.get('scenarios', {}).items():
             # Если сценарий сейчас загружен на сцену, обновляем прямо на сцене
             if scenario_id == self.active_scenario_id and self.current_edit_mode == EDIT_MODE_SCENARIO:
-                 for item in self.scene.items():
-                      if isinstance(item, MacroNode) and item.macro_id == updated_macro_id:
-                           log.debug(f"Updating sockets for MacroNode {item.id} on current scene.")
-                           item.update_sockets_from_definition(macro_data)
-                           # TODO: Нужно перепроверить/удалить/восстановить соединения!
+                for item in self.scene.items():
+                    if isinstance(item, MacroNode) and item.macro_id == updated_macro_id:
+                        log.debug(f"Updating sockets for MacroNode {item.id} on current scene.")
+                        item.update_sockets_from_definition(macro_data)
+                        # TODO: Нужно перепроверить/удалить/восстановить соединения!
             else:
                 # Если сценарий не загружен, нужно обновить его данные в project_data
                 # Это сложнее, т.к. нужно найти узел в данных и обновить его сокеты
                 # Пока пропустим этот шаг, он потребует рефакторинга хранения данных
                 # log.warning(f"Updating MacroNodes in unloaded scenario data ({scenario_id}) is not implemented yet.")
                 pass
-
 
     # --- (Метод load_scenario_state остается прежним) ---
     def load_scenario_state(self, scenario_id):
@@ -1299,7 +1325,6 @@ class MainWindow(QMainWindow):
                 nodes_map[node.id] = node
             except Exception as e:
                 log.error(f"Failed to load node from data {node_data}: {e}", exc_info=True)
-
 
         for conn_data in scenario_data.get('connections', []):
             start_node = nodes_map.get(conn_data['from_node'])
@@ -1322,13 +1347,12 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(1, self._update_all_items_properties)
         self._update_simulation_trigger_zones()
 
-
     def _update_all_items_properties(self):
         """Обновляет отображаемые свойства для всех узлов на сцене."""
         for item in self.scene.items():
             if isinstance(item, BaseNode):
                 item.update_display_properties(self.project_data.get('config'))
-        self.validate_current_view() # Используем новый метод валидации
+        self.validate_current_view()  # Используем новый метод валидации
 
     # --- (Методы update_scenarios_list, update_macros_list остаются прежними) ---
     def update_scenarios_list(self):
@@ -1356,13 +1380,13 @@ class MainWindow(QMainWindow):
         new_item_to_select = None
         for macro_id, macro_data in sorted(macros.items(), key=lambda item: item[1].get('name', '')):
             item = QListWidgetItem(macro_data.get('name', macro_id))
-            item.setData(Qt.ItemDataRole.UserRole, macro_id) # Сохраняем ID в данных элемента
+            item.setData(Qt.ItemDataRole.UserRole, macro_id)  # Сохраняем ID в данных элемента
             self.macros_list.addItem(item)
             if macro_id == current_id:
                 new_item_to_select = item
 
         if new_item_to_select:
-             self.macros_list.setCurrentItem(new_item_to_select)
+            self.macros_list.setCurrentItem(new_item_to_select)
 
         self.macros_list.blockSignals(False)
         # Также обновить выпадающий список в свойствах, если он открыт
@@ -1375,7 +1399,6 @@ class MainWindow(QMainWindow):
             self.validate_scenario()
         elif self.current_edit_mode == EDIT_MODE_MACRO:
             self.validate_macro()
-
 
     def validate_scenario(self):
         QTimer.singleShot(1, self._perform_scenario_validation)
@@ -1390,7 +1413,7 @@ class MainWindow(QMainWindow):
         for item in self.scene.items():
             if isinstance(item, BaseNode):
                 all_nodes.append(item)
-                item.validate(config) # Базовая валидация узла
+                item.validate(config)  # Базовая валидация узла
                 if isinstance(item, TriggerNode):
                     trigger_node = item
 
@@ -1399,9 +1422,9 @@ class MainWindow(QMainWindow):
             for node in all_nodes:
                 if not isinstance(node, TriggerNode) and not node.error_icon.isVisible():
                     node.set_validation_state(False, "В сценарії відсутній тригер.")
-            return # Дальнейшие проверки не имеют смысла без триггера
-        elif trigger_node.error_icon.isVisible(): # Если триггер невалиден сам по себе
-             return # Остальные проверки могут быть некорректны
+            return  # Дальнейшие проверки не имеют смысла без триггера
+        elif trigger_node.error_icon.isVisible():  # Если триггер невалиден сам по себе
+            return  # Остальные проверки могут быть некорректны
 
         # Проверка достижимости от триггера
         q = [trigger_node]
@@ -1415,27 +1438,27 @@ class MainWindow(QMainWindow):
                         reachable_nodes.add(next_node)
                         q.append(next_node)
 
-        TERMINAL_NODE_TYPES = (ActivateOutputNode, DeactivateOutputNode, SendSMSNode) # MacroOutput не терминальный в сценарии
+        TERMINAL_NODE_TYPES = (ActivateOutputNode, DeactivateOutputNode,
+                               SendSMSNode)  # MacroOutput не терминальный в сценарии
 
         for node in all_nodes:
             # Сбрасываем старую ошибку о недостижимости/зависании, если она больше не актуальна
             current_tooltip = node.error_icon.toolTip()
             reset_error = False
             if node in reachable_nodes and current_tooltip == "Вузол недосяжний від тригера.":
-                 reset_error = True
+                reset_error = True
             if node not in reachable_nodes and current_tooltip == "Ланцюжок логіки не завершено дією.":
-                 # Ошибка о недостижимости важнее
-                 pass # Не сбрасываем, она перекроется ниже
+                # Ошибка о недостижимости важнее
+                pass  # Не сбрасываем, она перекроется ниже
             elif current_tooltip == "Ланцюжок логіки не завершено дією.":
-                 # Перепроверяем, может узел стал терминальным или к нему что-то подключили
-                 is_terminal = isinstance(node, TERMINAL_NODE_TYPES)
-                 has_outputs = any(sock.connections for sock in node.get_output_sockets())
-                 if is_terminal or has_outputs:
-                      reset_error = True
+                # Перепроверяем, может узел стал терминальным или к нему что-то подключили
+                is_terminal = isinstance(node, TERMINAL_NODE_TYPES)
+                has_outputs = any(sock.connections for sock in node.get_output_sockets())
+                if is_terminal or has_outputs:
+                    reset_error = True
 
-            if reset_error and not node.error_icon.isVisible(): # Сбрасываем, только если НЕТ ДРУГИХ ошибок
-                 node.set_validation_state(True)
-
+            if reset_error and not node.error_icon.isVisible():  # Сбрасываем, только если НЕТ ДРУГИХ ошибок
+                node.set_validation_state(True)
 
             # Проверяем на недостижимость
             if node not in reachable_nodes:
@@ -1445,7 +1468,8 @@ class MainWindow(QMainWindow):
                 is_terminal = isinstance(node, TERMINAL_NODE_TYPES)
                 # Для всех узлов, кроме терминальных, должен быть хотя бы один выход
                 # Исключаем MacroNode, т.к. его выходы могут быть не подключены, если они не используются
-                if not is_terminal and not isinstance(node, MacroNode) and not any(sock.connections for sock in node.get_output_sockets()):
+                if not is_terminal and not isinstance(node, MacroNode) and not any(
+                        sock.connections for sock in node.get_output_sockets()):
                     node.set_validation_state(False, "Ланцюжок логіки не завершено дією.")
 
     def validate_macro(self):
@@ -1459,12 +1483,17 @@ class MainWindow(QMainWindow):
         all_nodes = []
         input_nodes = []
         output_nodes = []
-        config = self.project_data.get('config') # Конфиг может быть нужен для некоторых узлов
+        config = self.project_data.get('config')  # Конфиг может быть нужен для некоторых узлов
 
         for item in self.scene.items():
             if isinstance(item, BaseNode):
                 all_nodes.append(item)
-                item.validate(config) # Базовая валидация узла
+                # --- ЗМІНЕНО: Скидаємо помилку про дублікат перед новою перевіркою ---
+                current_tooltip = item.error_icon.toolTip()
+                if current_tooltip.startswith("Ім'я входу") or current_tooltip.startswith("Ім'я виходу"):
+                    item.set_validation_state(True)  # Скидаємо, щоб validate() могла встановити нову
+                # --- КІНЕЦЬ ЗМІНИ ---
+                item.validate(config)  # Базовая валидация узла
                 if isinstance(item, MacroInputNode):
                     input_nodes.append(item)
                 elif isinstance(item, MacroOutputNode):
@@ -1472,51 +1501,69 @@ class MainWindow(QMainWindow):
 
         # Проверка: Должен быть хотя бы один вход и один выход? (Опционально)
         if not input_nodes:
-             # Можно выводить предупреждение, а не ошибку
-             # self.show_status_message("Попередження: Макрос не має вузла 'Вхід Макроса'.", 5000, color="orange")
-             pass
+            # Можно выводить предупреждение, а не ошибку
+            # self.show_status_message("Попередження: Макрос не має вузла 'Вхід Макроса'.", 5000, color="orange")
+            pass
         if not output_nodes:
-             # self.show_status_message("Попередження: Макрос не має вузла 'Вихід Макроса'.", 5000, color="orange")
-             pass
+            # self.show_status_message("Попередження: Макрос не має вузла 'Вихід Макроса'.", 5000, color="orange")
+            pass
 
         # Проверка достижимости всех выходов от всех входов
         # Проверка, что все пути заканчиваются на выходе макроса
         # Это сложнее, требует обхода графа
 
-        # Проверка уникальности имен входов/выходов (если разрешено несколько)
+        # --- ЗМІНЕНО: Покращена перевірка на дублікати імен ---
         input_names = [n.node_name for n in input_nodes]
         output_names = [n.node_name for n in output_nodes]
+
+        input_name_counts = {name: input_names.count(name) for name in set(input_names)}
+        output_name_counts = {name: output_names.count(name) for name in set(output_names)}
+
+        log.debug(f"Macro validation: Input name counts: {input_name_counts}")
+        log.debug(f"Macro validation: Output name counts: {output_name_counts}")
+
+        for node in input_nodes:
+            if input_name_counts.get(node.node_name, 1) > 1:
+                log.warning(f"Duplicate input name found: {node.node_name} (Node ID: {node.id})")
+                node.set_validation_state(False, f"Ім'я входу '{node.node_name}' не є унікальним.")
+            elif not node.error_icon.isVisible():  # Не перезаписуємо інші помилки
+                pass  # Скидання помилки відбувається в item.validate()
+
+        for node in output_nodes:
+            if output_name_counts.get(node.node_name, 1) > 1:
+                log.warning(f"Duplicate output name found: {node.node_name} (Node ID: {node.id})")
+                node.set_validation_state(False, f"Ім'я виходу '{node.node_name}' не є унікальним.")
+            elif not node.error_icon.isVisible():  # Не перезаписуємо інші помилки
+                pass
+
         if len(input_names) != len(set(input_names)):
-            # Найти дубликаты и подсветить узлы
-            log.error("Macro validation failed: Duplicate MacroInputNode names.")
-            # TODO: Add visual indication for duplicate nodes
+            log.error("Macro validation failed: Duplicate MacroInputNode names detected.")
         if len(output_names) != len(set(output_names)):
-             log.error("Macro validation failed: Duplicate MacroOutputNode names.")
-             # TODO: Add visual indication
+            log.error("Macro validation failed: Duplicate MacroOutputNode names detected.")
+        # --- КІНЕЦЬ ЗМІНИ ---
 
         # Пример: проверка, что у входа есть выходное соединение
         for inp_node in input_nodes:
-             if not inp_node.out_socket or not inp_node.out_socket.connections:
-                  if not inp_node.error_icon.isVisible(): # Не перезаписываем другие ошибки
-                       inp_node.set_validation_state(False, f"Вузол '{inp_node.node_name}' нікуди не підключено.")
+            if not inp_node.out_socket or not inp_node.out_socket.connections:
+                if not inp_node.error_icon.isVisible():  # Не перезаписываем другие ошибки
+                    inp_node.set_validation_state(False, f"Вузол '{inp_node.node_name}' нікуди не підключено.")
 
         # Пример: проверка, что у выхода есть входное соединение
         for outp_node in output_nodes:
-             if not outp_node.in_socket or not outp_node.in_socket.connections:
-                  if not outp_node.error_icon.isVisible():
-                       outp_node.set_validation_state(False, f"До вузла '{outp_node.node_name}' нічого не підключено.")
+            if not outp_node.in_socket or not outp_node.in_socket.connections:
+                if not outp_node.error_icon.isVisible():
+                    outp_node.set_validation_state(False, f"До вузла '{outp_node.node_name}' нічого не підключено.")
 
         log.debug("Macro validation finished.")
-
 
     # --- (Методы симуляции _update_simulation_trigger_zones, update_simulation_controls, start/step/stop, get_user_choice остаются) ---
     def _update_simulation_trigger_zones(self):
         # Симуляция доступна только в режиме сценария
         if self.current_edit_mode != EDIT_MODE_SCENARIO:
-             self.sim_trigger_zone_combo.clear()
-             self.sim_trigger_zone_combo.addItem("Недоступно в режимі макросу", userData=None)
-             self.update_simulation_controls()
-             return
+            self.sim_trigger_zone_combo.clear()
+            self.sim_trigger_zone_combo.addItem("Недоступно в режимі макросу", userData=None)
+            self.update_simulation_controls()
+            return
 
         self.sim_trigger_zone_combo.clear()
         trigger_node = next((item for item in self.scene.items() if isinstance(item, TriggerNode)), None)
@@ -1564,7 +1611,7 @@ class MainWindow(QMainWindow):
 
     def start_simulation(self):
         if self.current_edit_mode != EDIT_MODE_SCENARIO: return
-        self.validate_scenario() # Валидируем именно сценарий
+        self.validate_scenario()  # Валидируем именно сценарий
         for item in self.scene.items():
             if isinstance(item, BaseNode) and item.error_icon.isVisible():
                 self.show_status_message("Помилка: Неможливо почати симуляцію, у сценарії є помилки.", 5000,
@@ -1588,7 +1635,7 @@ class MainWindow(QMainWindow):
     def stop_simulation(self):
         # Может быть вызвана из симулятора, когда мы в режиме сценария
         self.simulator.stop()
-        self.view.set_interactive(True) # Включаем интерактивность всегда при стопе
+        self.view.set_interactive(True)  # Включаем интерактивность всегда при стопе
         self.update_simulation_controls()
 
     def get_user_choice_for_condition(self, node):
@@ -1610,7 +1657,6 @@ class MainWindow(QMainWindow):
             return item
         return None
 
-
     def show_status_message(self, message, timeout=4000, color=None):
         style = f"color: {color};" if color else ""
         self.statusBar().setStyleSheet(style)
@@ -1621,11 +1667,12 @@ class MainWindow(QMainWindow):
     # --- (Методы copy/paste/import/export требуют доработки для макросов) ---
     def copy_selection(self):
         # Копирование пока работает только для текущего вида (сценария или макроса)
-        # Не копируем MacroInput/Output
+        # --- ЗМІНЕНО: Дозволяємо копіювання MacroInput/Output ---
         selected_items = self.scene.selectedItems()
-        nodes_to_copy = [item for item in selected_items if isinstance(item, BaseNode) and not isinstance(item, (MacroInputNode, MacroOutputNode))]
+        nodes_to_copy = [item for item in selected_items if isinstance(item, BaseNode)]
         comments_to_copy = [item for item in selected_items if isinstance(item, CommentItem)]
         frames_to_copy = [item for item in selected_items if isinstance(item, FrameItem)]
+        # --- КІНЕЦЬ ЗМІНИ ---
 
         if not (nodes_to_copy or comments_to_copy or frames_to_copy): return
 
@@ -1641,7 +1688,6 @@ class MainWindow(QMainWindow):
         for comment in comments_to_copy: comment.to_xml(comments_xml)
         for frame in frames_to_copy: frame.to_xml(frames_xml)
 
-
         # Копируем только те соединения, оба конца которых находятся в выделении
         for item in self.scene.items():
             if isinstance(item, Connection):
@@ -1653,8 +1699,8 @@ class MainWindow(QMainWindow):
 
         clipboard_string = ET.tostring(clipboard_root, pretty_print=True, encoding="unicode")
         QApplication.clipboard().setText(clipboard_string)
-        self.show_status_message(f"Скопійовано {len(nodes_to_copy) + len(comments_to_copy) + len(frames_to_copy)} елемент(и).")
-
+        self.show_status_message(
+            f"Скопійовано {len(nodes_to_copy) + len(comments_to_copy) + len(frames_to_copy)} елемент(и).")
 
     def paste_at_center(self):
         self.paste_selection()
@@ -1718,12 +1764,11 @@ class MainWindow(QMainWindow):
                         new_project_data['config']['users'].append(
                             {'id': user_el.get("id"), 'name': user_el.get("name"), 'phone': user_el.get("phone")})
 
-
             # Scenarios
             scenarios_xml = root_xml.find("scenarios")
             if scenarios_xml is not None:
-                 log.debug("Parsing <scenarios> section...")
-                 for scenario_el in scenarios_xml:
+                log.debug("Parsing <scenarios> section...")
+                for scenario_el in scenarios_xml:
                     scenario_id = scenario_el.get("id")
                     log.debug(f"Parsing scenario ID: {scenario_id}")
                     if not scenario_id: continue
@@ -1738,7 +1783,8 @@ class MainWindow(QMainWindow):
                     connections_xml = scenario_el.find("connections")
                     if connections_xml is not None:
                         for conn_el in connections_xml:
-                            log.debug(f"  - Parsing connection from: {conn_el.get('from_node')} to: {conn_el.get('to_node')}")
+                            log.debug(
+                                f"  - Parsing connection from: {conn_el.get('from_node')} to: {conn_el.get('to_node')}")
                             connections_data.append(Connection.data_from_xml(conn_el))
 
                     comments_xml = scenario_el.find("comments")
@@ -1749,19 +1795,18 @@ class MainWindow(QMainWindow):
 
                     frames_xml = scenario_el.find("frames")
                     if frames_xml is not None:
-                         for frame_el in frames_xml:
-                              log.debug(f"  - Parsing frame ID: {frame_el.get('id')}")
-                              frames_data.append(FrameItem.data_from_xml(frame_el))
+                        for frame_el in frames_xml:
+                            log.debug(f"  - Parsing frame ID: {frame_el.get('id')}")
+                            frames_data.append(FrameItem.data_from_xml(frame_el))
 
                     new_project_data['scenarios'][scenario_id] = {'nodes': nodes_data, 'connections': connections_data,
                                                                   'comments': comments_data, 'frames': frames_data}
 
-
             # Macros
             macros_xml = root_xml.find("macros")
             if macros_xml is not None:
-                 log.debug("Parsing <macros> section...")
-                 for macro_el in macros_xml:
+                log.debug("Parsing <macros> section...")
+                for macro_el in macros_xml:
                     macro_id = macro_el.get("id")
                     log.debug(f"Parsing macro ID: {macro_id}")
                     if not macro_id: continue
@@ -1772,27 +1817,29 @@ class MainWindow(QMainWindow):
                     }
                     nodes_xml = macro_el.find("nodes")
                     if nodes_xml is not None:
-                         for node_el in nodes_xml: macro_data['nodes'].append(BaseNode.data_from_xml(node_el))
+                        for node_el in nodes_xml: macro_data['nodes'].append(BaseNode.data_from_xml(node_el))
                     connections_xml = macro_el.find("connections")
                     if connections_xml is not None:
-                         for conn_el in connections_xml: macro_data['connections'].append(Connection.data_from_xml(conn_el))
+                        for conn_el in connections_xml: macro_data['connections'].append(
+                            Connection.data_from_xml(conn_el))
 
                     # Parse inputs/outputs definitions
                     inputs_xml = macro_el.find("inputs")
                     if inputs_xml is not None:
-                         for input_el in inputs_xml:
-                              macro_data['inputs'].append({
-                                   'name': input_el.get('name'),
-                                   'macro_input_node_id': input_el.get('node_id') # Ссылка на ID узла MacroInputNode внутри макроса
-                                   # 'internal_node_id' и 'internal_socket_name' здесь не нужны
-                              })
+                        for input_el in inputs_xml:
+                            macro_data['inputs'].append({
+                                'name': input_el.get('name'),
+                                'macro_input_node_id': input_el.get('node_id')
+                                # Ссылка на ID узла MacroInputNode внутри макроса
+                                # 'internal_node_id' и 'internal_socket_name' здесь не нужны
+                            })
                     outputs_xml = macro_el.find("outputs")
                     if outputs_xml is not None:
-                         for output_el in outputs_xml:
-                              macro_data['outputs'].append({
-                                   'name': output_el.get('name'),
-                                   'macro_output_node_id': output_el.get('node_id')
-                              })
+                        for output_el in outputs_xml:
+                            macro_data['outputs'].append({
+                                'name': output_el.get('name'),
+                                'macro_output_node_id': output_el.get('node_id')
+                            })
 
                     new_project_data['macros'][macro_id] = macro_data
 
@@ -1802,7 +1849,6 @@ class MainWindow(QMainWindow):
             log.critical(f"Critical error while parsing XML file: {e}", exc_info=True)
             QMessageBox.critical(self, "Помилка читання файлу", f"Не вдалося прочитати дані з файлу:\n{e}")
             return None
-
 
     def import_project(self):
         path, _ = QFileDialog.getOpenFileName(self, "Імпорт проекту", "", "XML Files (*.xml)")
@@ -1822,7 +1868,7 @@ class MainWindow(QMainWindow):
             self.macros_list.blockSignals(True)
             self.active_scenario_id = None
             self.active_macro_id = None
-            self.current_edit_mode = EDIT_MODE_SCENARIO # Начинаем со сценариев
+            self.current_edit_mode = EDIT_MODE_SCENARIO  # Начинаем со сценариев
             self.previous_scenario_id = None
             self.current_selected_node = None
 
@@ -1840,13 +1886,12 @@ class MainWindow(QMainWindow):
                 log.debug(f"Setting first scenario active: {first_scenario_id}")
                 items = self.scenarios_list.findItems(first_scenario_id, Qt.MatchFlag.MatchExactly)
                 if items:
-                     self.scenarios_list.setCurrentItem(items[0])
-                     # Загрузка будет вызвана сигналом currentItemChanged
+                    self.scenarios_list.setCurrentItem(items[0])
+                    # Загрузка будет вызвана сигналом currentItemChanged
             else:
-                 self.active_scenario_id = None
-                 self.scene.clear() # Очищаем сцену, если нет сценариев
-                 self._update_window_title()
-
+                self.active_scenario_id = None
+                self.scene.clear()  # Очищаем сцену, если нет сценариев
+                self._update_window_title()
 
             self.scenarios_list.blockSignals(False)
             self.macros_list.blockSignals(False)
@@ -1859,17 +1904,16 @@ class MainWindow(QMainWindow):
             # if self.scenarios_list.currentItem() and not self.active_scenario_id:
             #      self.on_active_scenario_changed(self.scenarios_list.currentItem(), None)
 
-
             self.show_status_message(f"Проект успішно імпортовано з {path}", color="green")
             log.info("Project imported successfully.")
 
         except Exception as e:
             log.critical(f"An unhandled exception occurred during project import: {e}", exc_info=True)
             QMessageBox.critical(self, "Помилка імпорту", f"Не вдалося імпортувати проект:\n{e}")
-            self.new_project() # Сбрасываем к новому проекту при ошибке
+            self.new_project()  # Сбрасываем к новому проекту при ошибке
 
     def export_project(self):
-        self.save_current_state() # Сохраняем текущий вид (сценарий или макрос)
+        self.save_current_state()  # Сохраняем текущий вид (сценарий или макрос)
         path, _ = QFileDialog.getSaveFileName(self, "Експорт проекту", "", "XML Files (*.xml)")
         if not path: return
         try:
@@ -1879,13 +1923,17 @@ class MainWindow(QMainWindow):
             config_xml = ET.SubElement(root_xml, "config")
             devices_xml = ET.SubElement(config_xml, "devices")
             for device in self.project_data['config'].get('devices', []):
-                device_el = ET.SubElement(devices_xml, "device", id=device['id'], name=device['name'], type=device['type'])
+                device_el = ET.SubElement(devices_xml, "device", id=device['id'], name=device['name'],
+                                          type=device['type'])
                 zones_xml = ET.SubElement(device_el, 'zones')
                 outputs_xml = ET.SubElement(device_el, 'outputs')
                 for zone in device.get('zones', []): ET.SubElement(zones_xml, 'zone', id=zone['id'], name=zone['name'])
-                for output in device.get('outputs', []): ET.SubElement(outputs_xml, 'output', id=output['id'], name=output['name'])
+                for output in device.get('outputs', []): ET.SubElement(outputs_xml, 'output', id=output['id'],
+                                                                       name=output['name'])
             users_xml = ET.SubElement(config_xml, "users")
-            for user in self.project_data['config'].get('users', []): ET.SubElement(users_xml, "user", id=user['id'], name=user['name'], phone=user.get('phone', ''))
+            for user in self.project_data['config'].get('users', []): ET.SubElement(users_xml, "user", id=user['id'],
+                                                                                    name=user['name'],
+                                                                                    phone=user.get('phone', ''))
 
             # Scenarios saving
             scenarios_xml = ET.SubElement(root_xml, "scenarios")
@@ -1911,9 +1959,11 @@ class MainWindow(QMainWindow):
                 for node_data in macro_data.get('nodes', []): BaseNode.data_to_xml(nodes_el, node_data)
                 for conn_data in macro_data.get('connections', []): Connection.data_to_xml(conns_el, conn_data)
                 for input_data in macro_data.get('inputs', []):
-                     ET.SubElement(inputs_el, "input", name=input_data.get('name',''), node_id=input_data.get('macro_input_node_id',''))
+                    ET.SubElement(inputs_el, "input", name=input_data.get('name', ''),
+                                  node_id=input_data.get('macro_input_node_id', ''))
                 for output_data in macro_data.get('outputs', []):
-                     ET.SubElement(outputs_el, "output", name=output_data.get('name',''), node_id=output_data.get('macro_output_node_id',''))
+                    ET.SubElement(outputs_el, "output", name=output_data.get('name', ''),
+                                  node_id=output_data.get('macro_output_node_id', ''))
 
             tree = ET.ElementTree(root_xml);
             tree.write(path, pretty_print=True, xml_declaration=True, encoding="utf-8")
@@ -1931,4 +1981,3 @@ class MainWindow(QMainWindow):
         center_pos = self.view.mapToScene(self.view.viewport().rect().center())
         command = AddCommentCommand(self.scene, center_pos, self.view)
         self.undo_stack.push(command)
-

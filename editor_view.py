@@ -4,10 +4,11 @@ from PyQt6.QtGui import QPainter, QPen, QColor, QPainterPath, QAction, QCursor
 from PyQt6.QtCore import Qt, QPointF, QLineF, QSize, QTimer
 from functools import partial
 
-from nodes import Socket, BaseNode, Connection, CommentItem, FrameItem, TriggerNode, DecoratorNode, NODE_REGISTRY
+from nodes import Socket, BaseNode, Connection, CommentItem, FrameItem, TriggerNode, DecoratorNode, NODE_REGISTRY, \
+    MacroNode  # <-- Добавлено MacroNode
 from commands import (AddConnectionCommand, MoveItemsCommand, RemoveItemsCommand,
                       AddNodeAndConnectCommand, ResizeCommand, AlignNodesCommand, AddFrameCommand, AddCommentCommand,
-                      UngroupFrameCommand, CreateMacroCommand) # Додано CreateMacroCommand
+                      UngroupFrameCommand, CreateMacroCommand)  # Додано CreateMacroCommand
 from minimap import Minimap
 
 log = logging.getLogger(__name__)
@@ -166,9 +167,9 @@ class EditorView(QGraphicsView):
             ctrl2 = p2 - QPointF(0, dy * 0.5)
             threshold = 50
             if abs(dy) < threshold:
-                 offset_x = max(50, abs(dx) * 0.2)
-                 ctrl1 = p1 + QPointF(offset_x, threshold)
-                 ctrl2 = p2 - QPointF(offset_x, threshold)
+                offset_x = max(50, abs(dx) * 0.2)
+                ctrl1 = p1 + QPointF(offset_x, threshold)
+                ctrl2 = p2 - QPointF(offset_x, threshold)
 
             path.cubicTo(ctrl1, ctrl2, p2)
             self.temp_line.setPath(path)
@@ -190,43 +191,43 @@ class EditorView(QGraphicsView):
         # Check if the event was accepted by the base class (e.g., rubber band selection finished)
         # If accepted, and it wasn't a connection attempt, return early.
         if event.isAccepted() and not (self.start_socket and self.temp_line):
-             # Finalize move command if needed AFTER super() handled selection/drag
-             moved_items_map = {}
-             for item, start_pos in self.moved_items_start_pos.items():
-                 # Check if item still exists and position changed
-                 if item.scene() and item.pos() != start_pos:
-                     moved_items_map[item] = (start_pos, item.pos())
-             if moved_items_map:
-                 command = MoveItemsCommand(moved_items_map)
-                 self.undo_stack.push(command)
+            # Finalize move command if needed AFTER super() handled selection/drag
+            moved_items_map = {}
+            for item, start_pos in self.moved_items_start_pos.items():
+                # Check if item still exists and position changed
+                if item.scene() and item.pos() != start_pos:
+                    moved_items_map[item] = (start_pos, item.pos())
+            if moved_items_map:
+                command = MoveItemsCommand(moved_items_map)
+                self.undo_stack.push(command)
 
-             self.moved_items.clear()
-             self.moved_items_start_pos.clear()
-             return # Don't process connection logic if base handled it
+            self.moved_items.clear()
+            self.moved_items_start_pos.clear()
+            return  # Don't process connection logic if base handled it
 
         # Handle the end of our custom connection drawing.
         if self.start_socket and self.temp_line:
-            start_node = self.start_socket.parentItem() # Get node for ID
+            start_node = self.start_socket.parentItem()  # Get node for ID
             start_node_id = start_node.id if start_node else None
             start_socket_name = self.start_socket.socket_name
 
             end_socket = next(
                 (item for item in self.items(event.pos()) if isinstance(item, Socket) and item.is_highlighted),
                 None)
-            self._update_potential_connections_highlight(None) # Reset highlight regardless of outcome
-            if self.temp_line.scene(): self.scene().removeItem(self.temp_line) # Remove temp line
+            self._update_potential_connections_highlight(None)  # Reset highlight regardless of outcome
+            if self.temp_line.scene(): self.scene().removeItem(self.temp_line)  # Remove temp line
 
             if end_socket:
                 command = AddConnectionCommand(self.scene(), self.start_socket, end_socket)
                 self.undo_stack.push(command)
-            elif start_node_id: # Only show menu if we started from a valid node
+            elif start_node_id:  # Only show menu if we started from a valid node
                 item_at_pos = self.itemAt(event.pos())
-                if item_at_pos is None: # Only show menu on empty space
+                if item_at_pos is None:  # Only show menu on empty space
                     self._show_add_node_menu_on_drag(event, start_node_id, start_socket_name)
 
             # Reset state variables
             self.temp_line, self.start_socket = None, None
-            event.accept() # Mark event as handled
+            event.accept()  # Mark event as handled
             # Clear move tracking as well, connection attempt takes precedence
             self.moved_items.clear()
             self.moved_items_start_pos.clear()
@@ -247,13 +248,46 @@ class EditorView(QGraphicsView):
         self.moved_items_start_pos.clear()
         # Don't accept event here if nothing happened, let it propagate if needed
 
+    # --- ИСПРАВЛЕНИЕ 1: Добавляем обработчик двойного клика ---
+    def mouseDoubleClickEvent(self, event):
+        if not self._is_interactive:
+            return
+
+        item_under_cursor = self.itemAt(event.pos())
+        node = item_under_cursor
+        # Ищем родительский узел (BaseNode), если кликнули на дочерний элемент
+        while node and not isinstance(node, BaseNode):
+            node = node.parentItem()
+
+        if isinstance(node, MacroNode):
+            log.debug(f"Double-clicked on MacroNode {node.id}. Attempting to edit macro {node.macro_id}")
+            main_window = self.parent()
+            if hasattr(main_window, 'edit_macro'):
+                # --- ИСПРАВЛЕНИЕ: Проверяем, существует ли macro_id ---
+                if node.macro_id:
+                    main_window.edit_macro(node.macro_id)
+                    event.accept()
+                    return
+                else:
+                    log.warning(f"MacroNode {node.id} has no macro_id assigned. Cannot edit.")
+                    # Можно добавить сообщение пользователю здесь
+                    QMessageBox.warning(self, "Помилка", "Макровузол не прив'язаний до макросу.")
+                    event.accept()  # Принимаем событие, чтобы оно не шло дальше
+                    return
+
+        # Если это был не MacroNode, передаем событие дальше
+        # (чтобы сработал двойной клик на тексте комментария/фрейма)
+        super().mouseDoubleClickEvent(event)
+
+    # --- КОНЕЦ ИСПРАВЛЕНИЯ 1 ---
 
     def _show_add_node_menu_on_drag(self, event, start_node_id, start_socket_name):
         context_menu = QMenu(self)
         for node_name in sorted(NODE_REGISTRY.keys()):
             # Не додаємо тригери та внутрішні вузли макросів у це меню
-            if NODE_REGISTRY[node_name] is TriggerNode or node_name in ["MacroInputNode", "MacroOutputNode", "Вхід Макроса", "Вихід Макроса"]:
-                 continue
+            if NODE_REGISTRY[node_name] is TriggerNode or node_name in ["MacroInputNode", "MacroOutputNode",
+                                                                        "Вхід Макроса", "Вихід Макроса"]:
+                continue
             icon = getattr(NODE_REGISTRY[node_name], 'ICON', '●')
             action = QAction(f"{icon} {node_name}", self)
             callback = partial(self._add_node_and_connect,
@@ -283,29 +317,29 @@ class EditorView(QGraphicsView):
             is_valid = item is not start_socket and item.is_output != start_socket.is_output
 
             if is_valid:
-                 # Ensure parent nodes exist
-                 start_node = start_socket.parentItem()
-                 end_node = item.parentItem()
-                 if not start_node or not end_node:
-                      is_valid = False
-                 else:
-                      # An input socket can only have one connection
-                      input_socket = item if not item.is_output else start_socket
-                      if len(input_socket.connections) > 0:
-                           is_valid = False
+                # Ensure parent nodes exist
+                start_node = start_socket.parentItem()
+                end_node = item.parentItem()
+                if not start_node or not end_node:
+                    is_valid = False
+                else:
+                    # An input socket can only have one connection
+                    input_socket = item if not item.is_output else start_socket
+                    if len(input_socket.connections) > 0:
+                        is_valid = False
 
-                      # Certain output sockets can also only have one connection
-                      output_socket = item if item.is_output else start_socket
-                      output_node = output_socket.parentItem()
-                      # Trigger and Decorator nodes (like Repeat) have restricted outputs
-                      if isinstance(output_node, (TriggerNode, DecoratorNode)):
-                           # Check specifically for 'out' on Trigger and 'out_loop'/'out_end' on Decorator
-                           # Condition node outputs ('out_true'/'out_false') can have multiple connections
-                           if output_socket.socket_name in ('out', 'out_loop', 'out_end') and len(output_socket.connections) > 0:
-                                is_valid = False
+                    # Certain output sockets can also only have one connection
+                    output_socket = item if item.is_output else start_socket
+                    output_node = output_socket.parentItem()
+                    # Trigger and Decorator nodes (like Repeat) have restricted outputs
+                    if isinstance(output_node, (TriggerNode, DecoratorNode)):
+                        # Check specifically for 'out' on Trigger and 'out_loop'/'out_end' on Decorator
+                        # Condition node outputs ('out_true'/'out_false') can have multiple connections
+                        if output_socket.socket_name in ('out', 'out_loop', 'out_end') and len(
+                                output_socket.connections) > 0:
+                            is_valid = False
 
             item.set_highlight(is_valid)
-
 
     def wheelEvent(self, event):
         if not self._is_interactive:
@@ -361,7 +395,6 @@ class EditorView(QGraphicsView):
             # Якщо меню порожнє, передаємо подію далі (рідкісний випадок)
             super().contextMenuEvent(event)
 
-
     def _populate_add_node_menu(self, parent_menu, event):
         add_node_menu = parent_menu.addMenu("Додати вузол")
         for node_name in sorted(NODE_REGISTRY.keys()):
@@ -388,20 +421,20 @@ class EditorView(QGraphicsView):
         is_frame_selected = any(isinstance(item, FrameItem) for item in selected_items)
 
         # Дії для Фреймів
-        if is_frame_selected and len(selected_items) == 1: # Тільки якщо вибрано один фрейм
+        if is_frame_selected and len(selected_items) == 1:  # Тільки якщо вибрано один фрейм
             ungroup_action = parent_menu.addAction("Розгрупувати фрейм")
             ungroup_action.triggered.connect(self._ungroup_selected_frame)
             parent_menu.addSeparator()
-        elif len(selected_nodes_or_comments) > 1 and not is_frame_selected: # Не групувати, якщо вже є фрейм
+        elif len(selected_nodes_or_comments) > 1 and not is_frame_selected:  # Не групувати, якщо вже є фрейм
             group_action = parent_menu.addAction("Сгрупувати в фрейм (Ctrl+G)")
             group_action.triggered.connect(self._group_selection_in_frame)
             parent_menu.addSeparator()
 
         # Дія для створення Макросу (додано)
-        if len(selected_nodes) > 1: # Потрібно вибрати хоча б два вузли для макросу
-             create_macro_action = parent_menu.addAction("🧩 Створити Макрос...")
-             create_macro_action.triggered.connect(self._create_macro_from_selection)
-             parent_menu.addSeparator()
+        if len(selected_nodes) > 1:  # Потрібно вибрати хоча б два вузли для макросу
+            create_macro_action = parent_menu.addAction("🧩 Створити Макрос...")
+            create_macro_action.triggered.connect(self._create_macro_from_selection)
+            parent_menu.addSeparator()
 
         # Дії вирівнювання
         if len(selected_nodes) > 1:
@@ -419,7 +452,7 @@ class EditorView(QGraphicsView):
             align_top.triggered.connect(lambda: self._align_nodes('top'))
             align_bottom.triggered.connect(lambda: self._align_nodes('bottom'))
             align_v_center.triggered.connect(lambda: self._align_nodes('v_center'))
-            parent_menu.addSeparator() # Додано роздільник
+            parent_menu.addSeparator()  # Додано роздільник
 
         # Копіювати/Видалити
         can_copy = any(isinstance(item, BaseNode) for item in selected_items)
@@ -446,15 +479,14 @@ class EditorView(QGraphicsView):
 
     # Нова функція для створення макросу
     def _create_macro_from_selection(self):
-         selected_items = self.scene().selectedItems()
-         # Передаємо головне вікно, оскільки команда повинна мати доступ до project_data
-         main_window = self.parent()
-         if selected_items and main_window:
-              command = CreateMacroCommand(main_window, selected_items)
-              self.undo_stack.push(command)
-         else:
-              log.warning("Cannot create macro: No items selected or main window not found.")
-
+        selected_items = self.scene().selectedItems()
+        # Передаємо головне вікно, оскільки команда повинна мати доступ до project_data
+        main_window = self.parent()
+        if selected_items and main_window:
+            command = CreateMacroCommand(main_window, selected_items)
+            self.undo_stack.push(command)
+        else:
+            log.warning("Cannot create macro: No items selected or main window not found.")
 
     def _align_nodes(self, mode):
         nodes = [item for item in self.scene().selectedItems() if isinstance(item, BaseNode)]
@@ -476,3 +508,4 @@ class EditorView(QGraphicsView):
         if selected:
             command = RemoveItemsCommand(self.scene(), selected)
             self.undo_stack.push(command)
+

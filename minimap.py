@@ -19,8 +19,10 @@ class Minimap(QGraphicsView):
         self.setScene(self.main_view.scene())
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Стилизация
-        self.setStyleSheet("border: 1px solid #555; background-color: #2a2a2a;")
+        # Стилизация с полупрозрачным фоном
+        # --- ИЗМЕНЕНИЕ: Добавлена прозрачность (alpha = 180/255) ---
+        self.setStyleSheet("border: 1px solid #555; background-color: rgba(42, 42, 42, 180);")
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
         # Настройки для прямоугольника, показывающего видимую область
         self.viewport_rect_pen = QPen(QColor("#77aaff"), 1.5)
