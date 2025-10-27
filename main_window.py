@@ -1064,13 +1064,16 @@ class MainWindow(QMainWindow):
         self._old_scenario_name = None
 
     def on_active_scenario_changed(self, current_item, previous_item):
+        log.debug(f"on_active_scenario_changed triggered. Current: {current_item.text() if current_item else 'None'}, Previous: {previous_item.text() if previous_item else 'None'}, Mode: {self.current_edit_mode}") # DIAGNOSTIC
         # Этот слот вызывается ТОЛЬКО для списка сценариев
         # Игнорируем, если мы переключаемся из режима макроса
         if self.current_edit_mode == EDIT_MODE_MACRO:
+            log.debug("  Ignoring scenario change while in macro mode.") # DIAGNOSTIC
             # Восстанавливаем выбор сценария, если он был
             if self.previous_scenario_id:
                 items = self.scenarios_list.findItems(self.previous_scenario_id, Qt.MatchFlag.MatchExactly)
                 if items:
+                    log.debug(f"  Restoring selection to {self.previous_scenario_id}") # DIAGNOSTIC
                     self.scenarios_list.blockSignals(True)
                     self.scenarios_list.setCurrentItem(items[0])
                     self.scenarios_list.blockSignals(False)
@@ -1081,17 +1084,23 @@ class MainWindow(QMainWindow):
             self.stop_simulation()
         if previous_item:
             prev_id = previous_item.text()
-            if prev_id in self.project_data['scenarios']: self.save_current_scenario_state()
+            if prev_id in self.project_data['scenarios']:
+                 log.debug(f"  Saving previous scenario state: {prev_id}") # DIAGNOSTIC
+                 self.save_current_scenario_state()
         if current_item:
-            self.active_scenario_id = current_item.text()
+            new_active_id = current_item.text()
+            log.debug(f"  Setting active scenario: {new_active_id}") # DIAGNOSTIC
+            self.active_scenario_id = new_active_id
             self.load_scenario_state(self.active_scenario_id)
         else:
+            log.debug("  No current item, clearing scene.") # DIAGNOSTIC
             self.active_scenario_id = None
             self.scene.clear()
         self.undo_stack.clear()
         self.current_selected_node = None
         self.on_selection_changed()
         self._update_window_title()
+        log.debug("on_active_scenario_changed finished.") # DIAGNOSTIC
 
     def set_edit_mode(self, mode):
         if self.current_edit_mode == mode: return
@@ -1310,18 +1319,25 @@ class MainWindow(QMainWindow):
 
     # --- (Метод load_scenario_state остается прежним) ---
     def load_scenario_state(self, scenario_id):
+        log.debug(f"Starting load_scenario_state for scenario: {scenario_id}") # DIAGNOSTIC
         self.scene.clear()
         scenario_data = self.project_data['scenarios'].get(scenario_id, {})
         nodes_map = {}
+        items_added = 0 # DIAGNOSTIC counter
         for node_data in scenario_data.get('nodes', []):
             try:
                 node = BaseNode.from_data(node_data)
+                log.debug(f"  Created node {node.id} ({node.node_type}) from data.") # DIAGNOSTIC
                 # Если это MacroNode, нужно обновить его сокеты
                 if isinstance(node, MacroNode) and node.macro_id:
                     macro_def = self.project_data.get('macros', {}).get(node.macro_id)
                     if macro_def:
+                        log.debug(f"    Updating sockets for MacroNode {node.id} from definition {node.macro_id}.") # DIAGNOSTIC
                         node.update_sockets_from_definition(macro_def)
+                    else:
+                        log.warning(f"    Macro definition {node.macro_id} not found for MacroNode {node.id}.") # DIAGNOSTIC
                 self.scene.addItem(node);
+                items_added += 1 # DIAGNOSTIC
                 nodes_map[node.id] = node
             except Exception as e:
                 log.error(f"Failed to load node from data {node_data}: {e}", exc_info=True)
@@ -1333,25 +1349,45 @@ class MainWindow(QMainWindow):
                 start_socket = start_node.get_socket(conn_data.get('from_socket', 'out'))
                 end_socket = end_node.get_socket(conn_data.get('to_socket', 'in'))
                 if start_socket and end_socket:
+                    log.debug(f"  Creating connection: {start_node.id}:{start_socket.socket_name} -> {end_node.id}:{end_socket.socket_name}") # DIAGNOSTIC
                     self.scene.addItem(Connection(start_socket, end_socket))
+                    items_added += 1 # DIAGNOSTIC
                 else:
                     log.warning(f"Could not create connection, socket not found for data: {conn_data}")
             else:
                 log.warning(f"Could not create connection, node not found for data: {conn_data}")
 
         for comment_data in scenario_data.get('comments', []):
-            self.scene.addItem(CommentItem.from_data(comment_data, self.view))
-        for frame_data in scenario_data.get('frames', []):
-            self.scene.addItem(FrameItem.from_data(frame_data, self.view))
+            try:
+                 log.debug(f"  Creating comment {comment_data.get('id')}") # DIAGNOSTIC
+                 self.scene.addItem(CommentItem.from_data(comment_data, self.view))
+                 items_added += 1 # DIAGNOSTIC
+            except Exception as e:
+                 log.error(f"Failed to load comment from data {comment_data}: {e}", exc_info=True)
 
+        for frame_data in scenario_data.get('frames', []):
+            try:
+                 log.debug(f"  Creating frame {frame_data.get('id')}") # DIAGNOSTIC
+                 self.scene.addItem(FrameItem.from_data(frame_data, self.view))
+                 items_added += 1 # DIAGNOSTIC
+            except Exception as e:
+                 log.error(f"Failed to load frame from data {frame_data}: {e}", exc_info=True)
+
+
+        log.debug(f"Finished load_scenario_state for {scenario_id}. Added {items_added} items to scene.") # DIAGNOSTIC
         QTimer.singleShot(1, self._update_all_items_properties)
         self._update_simulation_trigger_zones()
 
     def _update_all_items_properties(self):
         """Обновляет отображаемые свойства для всех узлов на сцене."""
+        log.debug("Updating display properties for all items on scene.") # DIAGNOSTIC
         for item in self.scene.items():
             if isinstance(item, BaseNode):
-                item.update_display_properties(self.project_data.get('config'))
+                try: # Добавляем try-except для отлова ошибок
+                     item.update_display_properties(self.project_data.get('config'))
+                except Exception as e:
+                     log.error(f"Error updating display properties for node {item.id}: {e}", exc_info=True)
+        log.debug("Finished updating display properties. Validating current view...") # DIAGNOSTIC
         self.validate_current_view()  # Используем новый метод валидации
 
     # --- (Методы update_scenarios_list, update_macros_list остаются прежними) ---
@@ -1881,13 +1917,14 @@ class MainWindow(QMainWindow):
             self._update_nodes_list()
 
             scenario_keys = sorted(self.project_data.get('scenarios', {}).keys())
+            first_scenario_id_to_load = None # Store the ID to load explicitly
             if scenario_keys:
-                first_scenario_id = scenario_keys[0]
-                log.debug(f"Setting first scenario active: {first_scenario_id}")
-                items = self.scenarios_list.findItems(first_scenario_id, Qt.MatchFlag.MatchExactly)
+                first_scenario_id_to_load = scenario_keys[0]
+                log.debug(f"Found first scenario to load: {first_scenario_id_to_load}")
+                items = self.scenarios_list.findItems(first_scenario_id_to_load, Qt.MatchFlag.MatchExactly)
                 if items:
                     self.scenarios_list.setCurrentItem(items[0])
-                    # Загрузка будет вызвана сигналом currentItemChanged
+                    # НЕ загружаем здесь, загрузим явно ниже
             else:
                 self.active_scenario_id = None
                 self.scene.clear()  # Очищаем сцену, если нет сценариев
@@ -1896,13 +1933,16 @@ class MainWindow(QMainWindow):
             self.scenarios_list.blockSignals(False)
             self.macros_list.blockSignals(False)
 
+            # --- [ИСПРАВЛЕНИЕ] Явно загружаем первый сценарий ---
+            if first_scenario_id_to_load:
+                log.debug(f"Explicitly loading scenario state for: {first_scenario_id_to_load}")
+                self.active_scenario_id = first_scenario_id_to_load
+                self.load_scenario_state(self.active_scenario_id)
+                self._update_window_title() # Обновляем заголовок после загрузки
+            # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
+
             # Переключаем вкладку на сценарии
             self.project_tabs.setCurrentIndex(0)
-
-            # Ручной вызов on_active_scenario_changed нужен только если сценарий уже выбран,
-            # но сигнал не сработал (например, если он был первым и единственным)
-            # if self.scenarios_list.currentItem() and not self.active_scenario_id:
-            #      self.on_active_scenario_changed(self.scenarios_list.currentItem(), None)
 
             self.show_status_message(f"Проект успішно імпортовано з {path}", color="green")
             log.info("Project imported successfully.")

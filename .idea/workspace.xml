@@ -4,12 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c2ae79a1-7d45-483a-9cb3-10c6ce259a0d" name="Changes" comment="V1.9 Alpha. macros scenarios">
+    <list default="true" id="c2ae79a1-7d45-483a-9cb3-10c6ce259a0d" name="Changes" comment="V1.10 Alpha. macros scenarios">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/commands.py" beforeDir="false" afterPath="$PROJECT_DIR$/commands.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/editor_view.py" beforeDir="false" afterPath="$PROJECT_DIR$/editor_view.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/main_window.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/minimap.py" beforeDir="false" afterPath="$PROJECT_DIR$/minimap.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/nodes.py" beforeDir="false" afterPath="$PROJECT_DIR$/nodes.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -193,7 +191,15 @@
       <option name="project" value="LOCAL" />
       <updated>1761207301925</updated>
     </task>
-    <option name="localTasksCounter" value="12" />
+    <task id="LOCAL-00012" summary="V1.10 Alpha. macros scenarios">
+      <option name="closed" value="true" />
+      <created>1761295960928</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1761295960928</updated>
+    </task>
+    <option name="localTasksCounter" value="13" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -217,6 +223,7 @@
     <MESSAGE value="V1.7 Unstable. Crashed when macros in|out create" />
     <MESSAGE value="V1.8 Stable. macros scenarios" />
     <MESSAGE value="V1.9 Alpha. macros scenarios" />
-    <option name="LAST_COMMIT_MESSAGE" value="V1.9 Alpha. macros scenarios" />
+    <MESSAGE value="V1.10 Alpha. macros scenarios" />
+    <option name="LAST_COMMIT_MESSAGE" value="V1.10 Alpha. macros scenarios" />
   </component>
 </project>

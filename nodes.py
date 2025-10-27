@@ -420,7 +420,13 @@ class BaseNode(QGraphicsItem):
 
     def update_display_properties(self, config=None):
         # Базовий метод - очищаємо текст властивостей
-        self.properties_text.setPlainText("")
+        # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
+        if hasattr(self, 'properties_text'):
+            self.properties_text.setPlainText("")
+        else:
+            # Логгируем, если у узла нет этого атрибута (например, MacroInput/Output)
+            log.debug(f"Node {self.id} ({type(self).__name__}) has no 'properties_text' attribute.")
+        # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
     def itemChange(self, change, value):
         # Оновлення Z-індексу при виборі/скасуванні вибору
@@ -632,7 +638,12 @@ class TriggerNode(BaseNode):
         trigger_type = props.get('trigger_type', 'N/A')
         zones = props.get('zones', [])
         text = f"{trigger_type}\nЗони: {len(zones)}"
-        self.properties_text.setPlainText(text)
+        # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
+        if hasattr(self, 'properties_text'):
+             self.properties_text.setPlainText(text)
+        else:
+             log.warning(f"TriggerNode {self.id} missing 'properties_text'.")
+        # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
     def validate(self, config):
         props = dict(self.properties)
@@ -681,7 +692,12 @@ class ActivateOutputNode(BaseNode):
             if output_info:
                 output_name = f"{output_info.get('parent_name', '')}: {output_info['name']}"
 
-        self.properties_text.setPlainText(output_name)
+        # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
+        if hasattr(self, 'properties_text'):
+             self.properties_text.setPlainText(output_name)
+        else:
+             log.warning(f"ActivateOutputNode {self.id} missing 'properties_text'.")
+        # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
     def validate(self, config):
         props = dict(self.properties)
@@ -726,7 +742,12 @@ class DeactivateOutputNode(BaseNode):
                       all_outputs[out['id']] = {'name': out['name'], 'parent_name': out.get('parent_name', '')}
             output_info = all_outputs.get(output_id)
             if output_info: output_name = f"{output_info.get('parent_name', '')}: {output_info['name']}"
-        self.properties_text.setPlainText(output_name)
+        # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
+        if hasattr(self, 'properties_text'):
+             self.properties_text.setPlainText(output_name)
+        else:
+             log.warning(f"DeactivateOutputNode {self.id} missing 'properties_text'.")
+        # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
 
     def validate(self, config):
@@ -760,7 +781,12 @@ class DelayNode(BaseNode):
     def update_display_properties(self, config=None):
         props = dict(self.properties)
         seconds = props.get('seconds', 0)
-        self.properties_text.setPlainText(f"{seconds} сек.")
+        # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
+        if hasattr(self, 'properties_text'):
+             self.properties_text.setPlainText(f"{seconds} сек.")
+        else:
+             log.warning(f"DelayNode {self.id} missing 'properties_text'.")
+        # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
 
 class SendSMSNode(BaseNode):
@@ -783,7 +809,12 @@ class SendSMSNode(BaseNode):
         if config and user_id:
             users_map = {user['id']: user['name'] for user in config.get('users', [])}
             user_name = users_map.get(user_id, "НЕ ЗНАЙДЕНО")
-        self.properties_text.setPlainText(f"Кому: {user_name}")
+        # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
+        if hasattr(self, 'properties_text'):
+             self.properties_text.setPlainText(f"Кому: {user_name}")
+        else:
+             log.warning(f"SendSMSNode {self.id} missing 'properties_text'.")
+        # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
     def validate(self, config):
         props = dict(self.properties)
@@ -855,7 +886,12 @@ class ConditionNodeZoneState(BaseNode):
             if zone_info: zone_name = f"{zone_info.get('parent_name', '')}: {zone_info['name']}"
             else: zone_name = "НЕ ЗНАЙДЕНО"
 
-        self.properties_text.setPlainText(f"{zone_name}\nСтан: {state}")
+        # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
+        if hasattr(self, 'properties_text'):
+             self.properties_text.setPlainText(f"{zone_name}\nСтан: {state}")
+        else:
+             log.warning(f"ConditionNodeZoneState {self.id} missing 'properties_text'.")
+        # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
     def validate(self, config):
         props = dict(self.properties)
@@ -935,7 +971,12 @@ class RepeatNode(DecoratorNode):
         props = dict(self.properties)
         count = int(props.get('count', 0))
         text = f"Виконати {count} раз" if count > 0 else "Безкінечно (-1)" if count == -1 else "Не виконувати (0)"
-        self.properties_text.setPlainText(text)
+        # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
+        if hasattr(self, 'properties_text'):
+             self.properties_text.setPlainText(text)
+        else:
+             log.warning(f"RepeatNode {self.id} missing 'properties_text'.")
+        # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
     def validate(self, config):
         props = dict(self.properties)
@@ -997,37 +1038,41 @@ class MacroNode(BaseNode):
         outputs = macro_data.get('outputs', [])
         log.debug(f"  Macro definition has {len(inputs)} inputs and {len(outputs)} outputs.") # Діагностика
 
-        # Розраховуємо нову висоту та позиції
+        # --- [ИСПРАВЛЕНИЕ 2] Изменяем расчет позиций сокетов на ВВЕРХ/НИЗ ---
         num_inputs = len(inputs)
         num_outputs = len(outputs)
-        socket_spacing = 25 # Відстань між сокетами
-        min_height = 60 # Мінімальна висота
-        required_height = max(min_height, socket_spacing * max(num_inputs, num_outputs) + 10)
+        socket_spacing = 25 # Уменьшаем расстояние, если нужно
+        min_width = 100 # Минимальная ширина, чтобы сокеты не слипались
+        required_width = max(min_width, socket_spacing * max(num_inputs, num_outputs) + 10)
 
-        # Перевіряємо, чи змінилася висота
-        if self.height != required_height:
-            log.debug(f"  Changing node height from {self.height} to {required_height}") # Діагностика
+        # Перевіряємо, чи змінилася ширина
+        if self.width != required_width:
+            log.debug(f"  Changing node width from {self.width} to {required_width}") # Діагностика
             self.prepareGeometryChange() # Повідомляємо про зміну геометрії
-            self.height = required_height
+            self.width = required_width
             self.rect.setRect(0, 0, self.width, self.height) # Оновлюємо прямокутник
+            # Обновляем позицию и ширину текста
+            if hasattr(self, 'name_text'): self.name_text.setTextWidth(self.width - 16)
+            if hasattr(self, 'properties_text'): self.properties_text.setTextWidth(self.width - 16)
             # Оновлюємо позицію індикатора помилки, якщо він є
             if hasattr(self, 'error_icon'):
                  self.error_icon.setPos(self.width - 24, 2)
 
 
-        # Створюємо вхідні сокети зліва
+        # Створюємо вхідні сокети зверху
         for i, input_def in enumerate(inputs):
             socket_name = input_def['name'] # Використовуємо ім'я входу як ім'я сокету
-            y_pos = (i + 1) * required_height / (num_inputs + 1) if num_inputs > 0 else required_height / 2
-            self.add_socket(name=socket_name, is_output=False, position=QPointF(0, y_pos), display_name=socket_name)
-            log.debug(f"  Added input socket: '{socket_name}' at y={y_pos:.1f}") # Діагностика
+            x_pos = (i + 1) * required_width / (num_inputs + 1) if num_inputs > 0 else required_width / 2
+            self.add_socket(name=socket_name, is_output=False, position=QPointF(x_pos, 0), display_name=socket_name)
+            log.debug(f"  Added input socket: '{socket_name}' at x={x_pos:.1f}, y=0") # Діагностика
 
-        # Створюємо вихідні сокети справа
+        # Створюємо вихідні сокети знизу
         for i, output_def in enumerate(outputs):
             socket_name = output_def['name']
-            y_pos = (i + 1) * required_height / (num_outputs + 1) if num_outputs > 0 else required_height / 2
-            self.add_socket(name=socket_name, is_output=True, position=QPointF(self.width, y_pos), display_name=socket_name)
-            log.debug(f"  Added output socket: '{socket_name}' at y={y_pos:.1f}") # Діагностика
+            x_pos = (i + 1) * required_width / (num_outputs + 1) if num_outputs > 0 else required_width / 2
+            self.add_socket(name=socket_name, is_output=True, position=QPointF(x_pos, self.height), display_name=socket_name)
+            log.debug(f"  Added output socket: '{socket_name}' at x={x_pos:.1f}, y={self.height}") # Діагностика
+        # --- [КОНЕЦ ИСПРАВЛЕНИЯ 2] ---
 
         # Відновлюємо з'єднання, якщо можливо
         # --- [ЗМІНА] Додано логування для відновлення з'єднань ---
@@ -1086,7 +1131,12 @@ class MacroNode(BaseNode):
         elif not self.macro_id: # Додано логування, якщо macro_id відсутній
              log.warning(f"macro_id is not set for MacroNode {self.id}")
 
-        self.properties_text.setPlainText(f"Макрос: {macro_name}\nID: {self.macro_id or '?'}")
+        # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
+        if hasattr(self, 'properties_text'):
+             self.properties_text.setPlainText(f"Макрос: {macro_name}\nID: {self.macro_id or '?'}")
+        else:
+             log.warning(f"MacroNode {self.id} missing 'properties_text'.")
+        # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
 
     def validate(self, config):
@@ -1198,6 +1248,14 @@ class MacroInputNode(BaseNode):
              if self.properties_text.scene(): self.properties_text.scene().removeItem(self.properties_text)
              del self.properties_text
 
+    # --- [ИСПРАВЛЕНИЕ 1] Переопределяем метод, чтобы избежать ошибки ---
+    def update_display_properties(self, config=None):
+        """Overrides base method to prevent AttributeError."""
+        # У этого узла нет properties_text, поэтому метод просто ничего не делает
+        log.debug(f"MacroInputNode.update_display_properties called for {self.id}. Doing nothing.")
+        pass
+    # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
+
 
 class MacroOutputNode(BaseNode):
     ICON = "⏹️" # Значок виходу
@@ -1253,6 +1311,14 @@ class MacroOutputNode(BaseNode):
         if hasattr(self, 'properties_text'):
              if self.properties_text.scene(): self.properties_text.scene().removeItem(self.properties_text)
              del self.properties_text
+
+    # --- [ИСПРАВЛЕНИЕ 1] Переопределяем метод, чтобы избежать ошибки ---
+    def update_display_properties(self, config=None):
+        """Overrides base method to prevent AttributeError."""
+        # У этого узла нет properties_text, поэтому метод просто ничего не делает
+        log.debug(f"MacroOutputNode.update_display_properties called for {self.id}. Doing nothing.")
+        pass
+    # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
 
 # --- Кінець нових класів ---
@@ -1706,4 +1772,3 @@ class FrameItem(QGraphicsItem):
         frame.setPos(QPointF(*data.get('pos', (0,0))))
         frame.resize_handle.setVisible(False) # Сховати ручку спочатку
         return frame
-
