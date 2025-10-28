@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c2ae79a1-7d45-483a-9cb3-10c6ce259a0d" name="Changes" comment="V1.15 Stable with little correction of design">
+    <list default="true" id="c2ae79a1-7d45-483a-9cb3-10c6ce259a0d" name="Changes" comment="V1.16 Stable with ungroup macros">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/clipboard.py" beforeDir="false" afterPath="$PROJECT_DIR$/clipboard.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/commands.py" beforeDir="false" afterPath="$PROJECT_DIR$/commands.py" afterDir="false" />
@@ -26,12 +26,9 @@
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
     <option name="UPDATE_TYPE" value="REBASE" />
   </component>
-  <component name="GitHubPullRequestSearchHistory">{
-  &quot;lastFilter&quot;: {
-    &quot;state&quot;: &quot;OPEN&quot;,
-    &quot;assignee&quot;: &quot;slavatiras&quot;
-  }
-}</component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {}
+}]]></component>
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
     &quot;url&quot;: &quot;https://github.com/slavatiras/tiras-scenario.git&quot;,
@@ -234,7 +231,15 @@
       <option name="project" value="LOCAL" />
       <updated>1761645406623</updated>
     </task>
-    <option name="localTasksCounter" value="17" />
+    <task id="LOCAL-00017" summary="V1.16 Stable with ungroup macros">
+      <option name="closed" value="true" />
+      <created>1761649356349</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1761649356349</updated>
+    </task>
+    <option name="localTasksCounter" value="18" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -263,6 +268,7 @@
     <MESSAGE value="V1.12 Alpha after refactoring" />
     <MESSAGE value="V1.14 Stable after refactoring" />
     <MESSAGE value="V1.15 Stable with little correction of design" />
-    <option name="LAST_COMMIT_MESSAGE" value="V1.15 Stable with little correction of design" />
+    <MESSAGE value="V1.16 Stable with ungroup macros" />
+    <option name="LAST_COMMIT_MESSAGE" value="V1.16 Stable with ungroup macros" />
   </component>
 </project>

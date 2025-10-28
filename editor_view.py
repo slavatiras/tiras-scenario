@@ -3,13 +3,33 @@ from PyQt6.QtWidgets import QGraphicsView, QGraphicsPathItem, QMenu, QApplicatio
 from PyQt6.QtGui import QPainter, QPen, QColor, QPainterPath, QAction, QCursor
 from PyQt6.QtCore import Qt, QPointF, QLineF, QSize, QTimer
 from functools import partial
+# --- ДОБАВЛЕНО: Импорт lxml для проверки буфера обмена ---
+from lxml import etree as ET
+# --- КОНЕЦ ДОБАВЛЕНОГО ---
 
 from nodes import Socket, BaseNode, Connection, CommentItem, FrameItem, TriggerNode, DecoratorNode, NODE_REGISTRY, \
     MacroNode  # <-- Добавлено MacroNode
-# --- ВИДАЛЕНО: Імпорт commands ---
+
+# --- ИЗМЕНЕНО: Определяем log перед использованием ---
+log = logging.getLogger(__name__)
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+# --- ИЗМЕНЕНО: Импортируем модуль commands целиком (для других команд) ---
+# Оставляем импорт модуля для команд, которые не вызывают проблем
+try:
+    import commands
+    COMMANDS_IMPORTED = True
+    log.debug("Successfully imported 'commands' module at top level.") # Теперь log определен
+except ImportError as import_error_at_top:
+    # Логгируем ошибку, если модуль не может быть импортирован
+    log.critical(f"Failed to import 'commands' module at top level: {import_error_at_top}", exc_info=True)
+    COMMANDS_IMPORTED = False
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+
 from minimap import Minimap
 
-log = logging.getLogger(__name__)
+# log = logging.getLogger(__name__) # <-- Строка была здесь
 
 
 class EditorView(QGraphicsView):
@@ -49,16 +69,22 @@ class EditorView(QGraphicsView):
 
     def create_resize_command(self, item, old_dims, new_dims):
         log.debug(f"Creating ResizeCommand for item {getattr(item, 'id', '?')}") # ДІАГНОСТИКА
-        try:
-            # --- Локальний імпорт ---
-            from commands import ResizeCommand
-            command = ResizeCommand(item, old_dims, new_dims)
-            self.undo_stack.push(command)
-            log.debug("  ResizeCommand pushed.") # ДІАГНОСТИКА
-        except ImportError as e:
-            log.error(f"  Failed to import ResizeCommand locally: {e}", exc_info=True) # ДІАГНОСТИКА
-        except Exception as e:
-            log.error(f"  Error creating/pushing ResizeCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        # --- Используем commands.ResizeCommand ---
+        if COMMANDS_IMPORTED:
+            try:
+                # --- Проверка наличия атрибута ---
+                if hasattr(commands, 'ResizeCommand'):
+                    command = commands.ResizeCommand(item, old_dims, new_dims) # Используем полное имя
+                    self.undo_stack.push(command)
+                    log.debug("  ResizeCommand pushed.") # ДІАГНОСТИКА
+                else:
+                    log.error("ResizeCommand not found in 'commands' module.")
+                    QMessageBox.critical(self, "Ошибка", "Не удалось найти команду изменения размера.")
+            except Exception as e:
+                log.error(f"  Error creating/pushing ResizeCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        else:
+            log.error("Cannot create ResizeCommand: Commands module failed to import.")
+            QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модуль команд.")
 
 
     def update_minimap(self):
@@ -239,16 +265,22 @@ class EditorView(QGraphicsView):
 
             if end_socket:
                 log.debug(f"  Valid connection target found. Creating AddConnectionCommand...") # ДІАГНОСТИКА
-                try:
-                    # --- Локальний імпорт ---
-                    from commands import AddConnectionCommand
-                    command = AddConnectionCommand(self.scene(), self.start_socket, end_socket)
-                    self.undo_stack.push(command)
-                    log.debug("    AddConnectionCommand pushed.") # ДІАГНОСТИКА
-                except ImportError as e:
-                    log.error(f"    Failed to import AddConnectionCommand locally: {e}", exc_info=True) # ДІАГНОСТИКА
-                except Exception as e:
-                    log.error(f"    Error creating/pushing AddConnectionCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+                # --- Используем commands.AddConnectionCommand ---
+                if COMMANDS_IMPORTED:
+                    try:
+                        # --- Проверка наличия атрибута ---
+                        if hasattr(commands, 'AddConnectionCommand'):
+                            command = commands.AddConnectionCommand(self.scene(), self.start_socket, end_socket) # Используем полное имя
+                            self.undo_stack.push(command)
+                            log.debug("    AddConnectionCommand pushed.") # ДІАГНОСТИКА
+                        else:
+                            log.error("AddConnectionCommand not found in 'commands' module.")
+                            QMessageBox.critical(self, "Ошибка", "Не удалось найти команду добавления соединения.")
+                    except Exception as e:
+                        log.error(f"    Error creating/pushing AddConnectionCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+                else:
+                    log.error("Cannot create AddConnectionCommand: Commands module failed to import.")
+                    QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модуль команд.")
             elif start_node_id:  # Only show menu if we started from a valid node
                 item_at_pos = self.itemAt(event.pos())
                 if item_at_pos is None:  # Only show menu on empty space
@@ -279,16 +311,22 @@ class EditorView(QGraphicsView):
                     moved_items_map[item] = (start_pos, item.pos())
             if moved_items_map:
                 log.debug(f"  Creating MoveItemsCommand for {len(moved_items_map)} items...") # ДІАГНОСТИКА
-                try:
-                    # --- Локальний імпорт ---
-                    from commands import MoveItemsCommand
-                    command = MoveItemsCommand(moved_items_map)
-                    self.undo_stack.push(command)
-                    log.debug("    MoveItemsCommand pushed.") # ДІАГНОСТИКА
-                except ImportError as e:
-                    log.error(f"    Failed to import MoveItemsCommand locally: {e}", exc_info=True) # ДІАГНОСТИКА
-                except Exception as e:
-                    log.error(f"    Error creating/pushing MoveItemsCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+                # --- Используем commands.MoveItemsCommand ---
+                if COMMANDS_IMPORTED:
+                    try:
+                        # --- Проверка наличия атрибута ---
+                        if hasattr(commands, 'MoveItemsCommand'):
+                            command = commands.MoveItemsCommand(moved_items_map) # Используем полное имя
+                            self.undo_stack.push(command)
+                            log.debug("    MoveItemsCommand pushed.") # ДІАГНОСТИКА
+                        else:
+                            log.error("MoveItemsCommand not found in 'commands' module.")
+                            QMessageBox.critical(self, "Ошибка", "Не удалось найти команду перемещения.")
+                    except Exception as e:
+                        log.error(f"    Error creating/pushing MoveItemsCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+                else:
+                    log.error("Cannot create MoveItemsCommand: Commands module failed to import.")
+                    QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модуль команд.")
 
             self.moved_items.clear()
             self.moved_items_start_pos.clear()
@@ -306,16 +344,22 @@ class EditorView(QGraphicsView):
                 moved_items_map[item] = (start_pos, item.pos())
         if moved_items_map:
             log.debug(f"  Creating MoveItemsCommand for {len(moved_items_map)} items...") # ДІАГНОСТИКА
-            try:
-                # --- Локальний імпорт ---
-                from commands import MoveItemsCommand
-                command = MoveItemsCommand(moved_items_map)
-                self.undo_stack.push(command)
-                log.debug("    MoveItemsCommand pushed.") # ДІАГНОСТИКА
-            except ImportError as e:
-                log.error(f"    Failed to import MoveItemsCommand locally: {e}", exc_info=True) # ДІАГНОСТИКА
-            except Exception as e:
-                log.error(f"    Error creating/pushing MoveItemsCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+            # --- Используем commands.MoveItemsCommand ---
+            if COMMANDS_IMPORTED:
+                try:
+                    # --- Проверка наличия атрибута ---
+                    if hasattr(commands, 'MoveItemsCommand'):
+                        command = commands.MoveItemsCommand(moved_items_map) # Используем полное имя
+                        self.undo_stack.push(command)
+                        log.debug("    MoveItemsCommand pushed.") # ДІАГНОСТИКА
+                    else:
+                        log.error("MoveItemsCommand not found in 'commands' module.")
+                        QMessageBox.critical(self, "Ошибка", "Не удалось найти команду перемещения.")
+                except Exception as e:
+                    log.error(f"    Error creating/pushing MoveItemsCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+            else:
+                log.error("Cannot create MoveItemsCommand: Commands module failed to import.")
+                QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модуль команд.")
 
         # Clear tracking variables
         self.moved_items.clear()
@@ -392,18 +436,24 @@ class EditorView(QGraphicsView):
 
     def _add_node_and_connect(self, node_type_name, view_pos, start_node_id, start_socket_name):
         log.debug(f"Adding node '{node_type_name}' and connecting from {start_node_id}:{start_socket_name} at pos {view_pos}") # ДІАГНОСТИКА
-        try:
-            # --- Локальний імпорт ---
-            from commands import AddNodeAndConnectCommand
-            scene_pos = self.mapToScene(view_pos)
-            command = AddNodeAndConnectCommand(self.scene(), node_type_name, scene_pos, start_node_id,
-                                                    start_socket_name)
-            self.undo_stack.push(command)
-            log.debug("  AddNodeAndConnectCommand pushed.") # ДІАГНОСТИКА
-        except ImportError as e:
-             log.error(f"  Failed to import AddNodeAndConnectCommand locally: {e}", exc_info=True) # ДІАГНОСТИКА
-        except Exception as e:
-            log.error(f"  Error creating/pushing AddNodeAndConnectCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        # --- Используем commands.AddNodeAndConnectCommand ---
+        if COMMANDS_IMPORTED:
+            try:
+                # --- Проверка наличия атрибута ---
+                if hasattr(commands, 'AddNodeAndConnectCommand'):
+                    scene_pos = self.mapToScene(view_pos)
+                    command = commands.AddNodeAndConnectCommand(self.scene(), node_type_name, scene_pos, start_node_id,
+                                                            start_socket_name) # Используем полное имя
+                    self.undo_stack.push(command)
+                    log.debug("  AddNodeAndConnectCommand pushed.") # ДІАГНОСТИКА
+                else:
+                    log.error("AddNodeAndConnectCommand not found in 'commands' module.")
+                    QMessageBox.critical(self, "Ошибка", "Не удалось найти команду добавления и соединения.")
+            except Exception as e:
+                log.error(f"  Error creating/pushing AddNodeAndConnectCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        else:
+            log.error("Cannot create AddNodeAndConnectCommand: Commands module failed to import.")
+            QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модуль команд.")
 
 
     def _update_potential_connections_highlight(self, start_socket):
@@ -636,140 +686,184 @@ class EditorView(QGraphicsView):
 
     def _group_selection_in_frame(self):
         log.debug("Grouping selection in frame...") # ДІАГНОСТИКА
-        try:
-            # --- Локальний імпорт ---
-            from commands import AddFrameCommand
-            selected = [item for item in self.scene().selectedItems() if isinstance(item, (BaseNode, CommentItem))]
-            if selected:
-                command = AddFrameCommand(self.scene(), selected)
-                self.undo_stack.push(command)
-                log.debug("  AddFrameCommand pushed.") # ДІАГНОСТИКА
-            else:
-                log.debug("  No valid items selected for grouping.") # ДІАГНОСТИКА
-        except ImportError as e:
-             log.error(f"  Failed to import AddFrameCommand locally: {e}", exc_info=True) # ДІАГНОСТИКА
-        except Exception as e:
-             log.error(f"  Error creating/pushing AddFrameCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        # --- Используем commands.AddFrameCommand ---
+        if COMMANDS_IMPORTED:
+            try:
+                # --- Проверка наличия атрибута ---
+                if hasattr(commands, 'AddFrameCommand'):
+                    selected = [item for item in self.scene().selectedItems() if isinstance(item, (BaseNode, CommentItem))]
+                    if selected:
+                        command = commands.AddFrameCommand(self.scene(), selected) # Используем полное имя
+                        self.undo_stack.push(command)
+                        log.debug("  AddFrameCommand pushed.") # ДІАГНОСТИКА
+                    else:
+                        log.debug("  No valid items selected for grouping.") # ДІАГНОСТИКА
+                else:
+                    log.error("AddFrameCommand not found in 'commands' module.")
+                    QMessageBox.critical(self, "Ошибка", "Не удалось найти команду группировки.")
+            except Exception as e:
+                log.error(f"  Error creating/pushing AddFrameCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        else:
+            log.error("Cannot group: Commands module failed to import.")
+            QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модуль команд.")
 
 
     def _ungroup_selected_frame(self):
         log.debug("Ungrouping selected frame...") # ДІАГНОСТИКА
-        try:
-            # --- Локальний імпорт ---
-            from commands import UngroupFrameCommand
-            frame = next((item for item in self.scene().selectedItems() if isinstance(item, FrameItem)), None)
-            if frame:
-                command = UngroupFrameCommand(self.scene(), frame)
-                self.undo_stack.push(command)
-                log.debug(f"  UngroupFrameCommand pushed for frame {frame.id}.") # ДІАГНОСТИКА
-            else:
-                log.debug("  No frame selected for ungrouping.") # ДІАГНОСТИКА
-        except ImportError as e:
-             log.error(f"  Failed to import UngroupFrameCommand locally: {e}", exc_info=True) # ДІАГНОСТИКА
-        except Exception as e:
-             log.error(f"  Error creating/pushing UngroupFrameCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        # --- Используем commands.UngroupFrameCommand ---
+        if COMMANDS_IMPORTED:
+            try:
+                # --- Проверка наличия атрибута ---
+                if hasattr(commands, 'UngroupFrameCommand'):
+                    frame = next((item for item in self.scene().selectedItems() if isinstance(item, FrameItem)), None)
+                    if frame:
+                        command = commands.UngroupFrameCommand(self.scene(), frame) # Используем полное имя
+                        self.undo_stack.push(command)
+                        log.debug(f"  UngroupFrameCommand pushed for frame {frame.id}.") # ДІАГНОСТИКА
+                    else:
+                        log.debug("  No frame selected for ungrouping.") # ДІАГНОСТИКА
+                else:
+                    log.error("UngroupFrameCommand not found in 'commands' module.")
+                    QMessageBox.critical(self, "Ошибка", "Не удалось найти команду разгруппировки фрейма.")
+            except Exception as e:
+                log.error(f"  Error creating/pushing UngroupFrameCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        else:
+            log.error("Cannot ungroup frame: Commands module failed to import.")
+            QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модуль команд.")
 
 
     # Нова функція для створення макросу
     def _create_macro_from_selection(self):
         log.debug("Creating macro from selection...") # ДІАГНОСТИКА
+        # --- ИЗМЕНЕНО: Возвращаем локальный импорт CreateMacroCommand ---
         try:
-            # --- Локальний імпорт ---
-            from commands import CreateMacroCommand
+            from commands import CreateMacroCommand # Локальный импорт
+            log.debug("  Successfully imported CreateMacroCommand locally.")
+        except ImportError:
+            log.error("Failed to import CreateMacroCommand INSIDE function.")
+            QMessageBox.critical(self, "Ошибка", "Не удалось импортировать команду создания макроса.")
+            return
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+        try:
             selected_items = self.scene().selectedItems()
             main_window = self.parent()
             if selected_items and main_window:
-                command = CreateMacroCommand(main_window, selected_items)
+                command = CreateMacroCommand(main_window, selected_items) # Используем импортированный класс
                 self.undo_stack.push(command)
                 log.debug("  CreateMacroCommand pushed.") # ДІАГНОСТИКА
             else:
                 log.warning("Cannot create macro: No items selected or main window not found.")
-        except ImportError as e:
-             log.error(f"  Failed to import CreateMacroCommand locally: {e}", exc_info=True) # ДІАГНОСТИКА
         except Exception as e:
              log.error(f"  Error creating/pushing CreateMacroCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+             QMessageBox.critical(self, "Ошибка", f"Произошла ошибка при создании макроса:\n{e}")
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 
     # --- ДОДАНО: Нова функція для розгрупування макросу ---
     def _ungroup_selected_macro(self):
         """Викликає команду розгрупування для вибраного MacroNode."""
         log.debug("Ungrouping selected macro...") # ДІАГНОСТИКА
-        try:
-            # --- Локальний імпорт ---
-            from commands import UngroupMacroCommand
-            selected_macro_node = next((item for item in self.scene().selectedItems() if isinstance(item, MacroNode)), None)
-            main_window = self.parent() # Потрібен доступ до ProjectManager
-            if selected_macro_node and main_window:
-                log.debug(f"Ungroup macro action triggered for MacroNode: {selected_macro_node.id}")
-                # Перевіряємо, чи існує визначення макросу
-                if not selected_macro_node.macro_id or not main_window.project_manager.get_macro_data(selected_macro_node.macro_id):
-                     log.warning("Cannot ungroup macro: Definition not found or macro_id is missing.")
-                     QMessageBox.warning(self, "Помилка", "Не вдалося знайти визначення для цього макросу.")
-                     return
-                command = UngroupMacroCommand(main_window, selected_macro_node)
-                self.undo_stack.push(command)
-                log.debug(f"  UngroupMacroCommand pushed for macro node {selected_macro_node.id}.") # ДІАГНОСТИКА
-            else:
-                log.warning("Ungroup macro action called but no single MacroNode selected or main window not found.")
-        except ImportError as e:
-             log.error(f"  Failed to import UngroupMacroCommand locally: {e}", exc_info=True) # ДІАГНОСТИКА
-        except Exception as e:
-             log.error(f"  Error creating/pushing UngroupMacroCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        # --- Используем commands.UngroupMacroCommand ---
+        if COMMANDS_IMPORTED:
+            try:
+                # --- Проверка наличия атрибута ---
+                if hasattr(commands, 'UngroupMacroCommand'):
+                    selected_macro_node = next((item for item in self.scene().selectedItems() if isinstance(item, MacroNode)), None)
+                    main_window = self.parent() # Потрібен доступ до ProjectManager
+                    if selected_macro_node and main_window:
+                        log.debug(f"Ungroup macro action triggered for MacroNode: {selected_macro_node.id}")
+                        # Перевіряємо, чи існує визначення макросу
+                        if not selected_macro_node.macro_id or not main_window.project_manager.get_macro_data(selected_macro_node.macro_id):
+                             log.warning("Cannot ungroup macro: Definition not found or macro_id is missing.")
+                             QMessageBox.warning(self, "Помилка", "Не вдалося знайти визначення для цього макросу.")
+                             return
+                        command = commands.UngroupMacroCommand(main_window, selected_macro_node) # Используем полное имя
+                        self.undo_stack.push(command)
+                        log.debug(f"  UngroupMacroCommand pushed for macro node {selected_macro_node.id}.") # ДІАГНОСТИКА
+                    else:
+                        log.warning("Ungroup macro action called but no single MacroNode selected or main window not found.")
+                else:
+                    log.error("UngroupMacroCommand not found in 'commands' module.")
+                    QMessageBox.critical(self, "Ошибка", "Не удалось найти команду разгруппировки макроса.")
+            except Exception as e:
+                 log.error(f"  Error creating/pushing UngroupMacroCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        else:
+            log.error("Cannot ungroup macro: Commands module failed to import.")
+            QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модуль команд.")
     # --- КІНЕЦЬ ДОДАНОГО ---
 
     def _align_nodes(self, mode):
         log.debug(f"Aligning selected nodes (mode: {mode})...") # ДІАГНОСТИКА
-        try:
-            # --- Локальний імпорт ---
-            from commands import AlignNodesCommand
-            nodes = [item for item in self.scene().selectedItems() if isinstance(item, BaseNode)]
-            if len(nodes) > 1:
-                command = AlignNodesCommand(nodes, mode)
-                self.undo_stack.push(command)
-                log.debug("  AlignNodesCommand pushed.") # ДІАГНОСТИКА
-            else:
-                log.debug("  Not enough nodes selected for alignment.") # ДІАГНОСТИКА
-        except ImportError as e:
-             log.error(f"  Failed to import AlignNodesCommand locally: {e}", exc_info=True) # ДІАГНОСТИКА
-        except Exception as e:
-             log.error(f"  Error creating/pushing AlignNodesCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        # --- Используем commands.AlignNodesCommand ---
+        if COMMANDS_IMPORTED:
+            try:
+                # --- Проверка наличия атрибута ---
+                if hasattr(commands, 'AlignNodesCommand'):
+                    nodes = [item for item in self.scene().selectedItems() if isinstance(item, BaseNode)]
+                    if len(nodes) > 1:
+                        command = commands.AlignNodesCommand(nodes, mode) # Используем полное имя
+                        self.undo_stack.push(command)
+                        log.debug("  AlignNodesCommand pushed.") # ДІАГНОСТИКА
+                    else:
+                        log.debug("  Not enough nodes selected for alignment.") # ДІАГНОСТИКА
+                else:
+                    log.error("AlignNodesCommand not found in 'commands' module.")
+                    QMessageBox.critical(self, "Ошибка", "Не удалось найти команду выравнивания.")
+            except Exception as e:
+                 log.error(f"  Error creating/pushing AlignNodesCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        else:
+            log.error("Cannot align nodes: Commands module failed to import.")
+            QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модуль команд.")
 
 
     def _add_node_from_context_menu(self, node_type_name, view_pos):
         log.debug(f"Adding node '{node_type_name}' from context menu at {view_pos}.") # ДІАГНОСТИКА
-        # Тут не потрібен локальний імпорт команди, бо викликається метод батька
+        # Тут не потрібен імпорт команди, бо викликається метод батька
         self.parent().add_node(node_type_name, self.mapToScene(view_pos))
 
     def _add_comment_at_cursor(self):
         log.debug("Adding comment at cursor...") # ДІАГНОСТИКА
-        try:
-            # --- Локальний імпорт ---
-            from commands import AddCommentCommand
-            view_pos = self.mapFromGlobal(QCursor.pos())
-            scene_pos = self.mapToScene(view_pos)
-            command = AddCommentCommand(self.scene(), scene_pos, self)
-            self.undo_stack.push(command)
-            log.debug(f"  AddCommentCommand pushed at scene pos {scene_pos}.") # ДІАГНОСТИКА
-        except ImportError as e:
-             log.error(f"  Failed to import AddCommentCommand locally: {e}", exc_info=True) # ДІАГНОСТИКА
-        except Exception as e:
-             log.error(f"  Error creating/pushing AddCommentCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        # --- Используем commands.AddCommentCommand ---
+        if COMMANDS_IMPORTED:
+            try:
+                # --- Проверка наличия атрибута ---
+                if hasattr(commands, 'AddCommentCommand'):
+                    view_pos = self.mapFromGlobal(QCursor.pos())
+                    scene_pos = self.mapToScene(view_pos)
+                    command = commands.AddCommentCommand(self.scene(), scene_pos, self) # Используем полное имя
+                    self.undo_stack.push(command)
+                    log.debug(f"  AddCommentCommand pushed at scene pos {scene_pos}.") # ДІАГНОСТИКА
+                else:
+                    log.error("AddCommentCommand not found in 'commands' module.")
+                    QMessageBox.critical(self, "Ошибка", "Не удалось найти команду добавления комментария.")
+            except Exception as e:
+                 log.error(f"  Error creating/pushing AddCommentCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        else:
+            log.error("Cannot add comment: Commands module failed to import.")
+            QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модуль команд.")
 
 
     def _delete_selected_items(self):
         log.debug("Deleting selected items...") # ДІАГНОСТИКА
-        try:
-            # --- Локальний імпорт ---
-            from commands import RemoveItemsCommand
-            selected = self.scene().selectedItems()
-            if selected:
-                command = RemoveItemsCommand(self.scene(), selected)
-                self.undo_stack.push(command)
-                log.debug(f"  RemoveItemsCommand pushed for {len(selected)} items.") # ДІАГНОСТИКА
-            else:
-                log.debug("  No items selected for deletion.") # ДІАГНОСТИКА
-        except ImportError as e:
-             log.error(f"  Failed to import RemoveItemsCommand locally: {e}", exc_info=True) # ДІАГНОСТИКА
-        except Exception as e:
-             log.error(f"  Error creating/pushing RemoveItemsCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        # --- Используем commands.RemoveItemsCommand ---
+        if COMMANDS_IMPORTED:
+            try:
+                # --- Проверка наличия атрибута ---
+                if hasattr(commands, 'RemoveItemsCommand'):
+                    selected = self.scene().selectedItems()
+                    if selected:
+                        command = commands.RemoveItemsCommand(self.scene(), selected) # Используем полное имя
+                        self.undo_stack.push(command)
+                        log.debug(f"  RemoveItemsCommand pushed for {len(selected)} items.") # ДІАГНОСТИКА
+                    else:
+                        log.debug("  No items selected for deletion.") # ДІАГНОСТИКА
+                else:
+                    log.error("RemoveItemsCommand not found in 'commands' module.")
+                    QMessageBox.critical(self, "Ошибка", "Не удалось найти команду удаления.")
+            except Exception as e:
+                 log.error(f"  Error creating/pushing RemoveItemsCommand: {e}", exc_info=True) # ДІАГНОСТИКА
+        else:
+            log.error("Cannot delete items: Commands module failed to import.")
+            QMessageBox.critical(self, "Ошибка", "Не удалось загрузить модуль команд.")
 

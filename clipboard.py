@@ -6,8 +6,15 @@ from PyQt6.QtCore import QPointF
 
 # Імпортуємо необхідні типи елементів
 from nodes import BaseNode, Connection, CommentItem, FrameItem
-# --- ВИДАЛЕНО: Імпорт PasteCommand тут ---
-# from commands import PasteCommand # Команда вставки використовується тут
+
+# --- ИЗМЕНЕНО: Переносим импорт команды сюда ---
+try:
+    from commands import PasteCommand # Команда вставки используется здесь
+    PASTE_COMMAND_IMPORTED = True
+except ImportError as e:
+    logging.getLogger(__name__).critical(f"Failed to import PasteCommand at top level: {e}", exc_info=True)
+    PASTE_COMMAND_IMPORTED = False
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 log = logging.getLogger(__name__)
 
@@ -90,15 +97,12 @@ def paste_selection_from_clipboard(scene, paste_pos: QPointF, view, current_edit
     на сцену в зазначеній позиції.
     Повертає True, якщо команда була створена та додана до стеку, інакше False.
     """
-    # --- ДОДАНО: Локальний імпорт ---
     log.debug("Attempting paste_selection_from_clipboard...") # ДІАГНОСТИКА
-    try:
-        from commands import PasteCommand # Імпортуємо тут, всередині функції
-        log.debug("  Successfully imported PasteCommand locally.") # ДІАГНОСТИКА
-    except ImportError as e:
-        log.error(f"  Failed to import PasteCommand locally: {e}", exc_info=True) # ДІАГНОСТИКА
+    # --- ИЗМЕНЕНО: Проверяем флаг импорта ---
+    if not PASTE_COMMAND_IMPORTED:
+        log.error("Cannot paste: PasteCommand failed to import.") # ДІАГНОСТИКА
         return False
-    # --- КІНЕЦЬ ДОДАНОГО ---
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     clipboard_string = QApplication.clipboard().text()
     if not clipboard_string:
