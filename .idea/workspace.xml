@@ -4,15 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c2ae79a1-7d45-483a-9cb3-10c6ce259a0d" name="Changes" comment="V1.11 Alpha with macros">
-      <change afterPath="$PROJECT_DIR$/clipboard.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/project_manager.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/scene_utils.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/serialization.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/validation.py" afterDir="false" />
+    <list default="true" id="c2ae79a1-7d45-483a-9cb3-10c6ce259a0d" name="Changes" comment="V1.12 Alpha after refactoring">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/commands.py" beforeDir="false" afterPath="$PROJECT_DIR$/commands.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/main_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/main_window.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/nodes.py" beforeDir="false" afterPath="$PROJECT_DIR$/nodes.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -214,7 +209,15 @@
       <option name="project" value="LOCAL" />
       <updated>1761571153908</updated>
     </task>
-    <option name="localTasksCounter" value="14" />
+    <task id="LOCAL-00014" summary="V1.12 Alpha after refactoring">
+      <option name="closed" value="true" />
+      <created>1761576714352</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1761576714353</updated>
+    </task>
+    <option name="localTasksCounter" value="15" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -240,6 +243,7 @@
     <MESSAGE value="V1.9 Alpha. macros scenarios" />
     <MESSAGE value="V1.10 Alpha. macros scenarios" />
     <MESSAGE value="V1.11 Alpha with macros" />
-    <option name="LAST_COMMIT_MESSAGE" value="V1.11 Alpha with macros" />
+    <MESSAGE value="V1.12 Alpha after refactoring" />
+    <option name="LAST_COMMIT_MESSAGE" value="V1.12 Alpha after refactoring" />
   </component>
 </project>

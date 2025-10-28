@@ -5,7 +5,7 @@ from enum import Enum, auto
 from lxml import etree as ET
 from PyQt6.QtGui import QColor, QPen, QBrush, QFont, QPainterPath, QTextCursor, QTextOption # Додано QTextOption
 from PyQt6.QtCore import Qt, QRectF, QPointF
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem, QGraphicsEllipseItem, QGraphicsPathItem, QInputDialog # Додано QInputDialog
+from PyQt6.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem, QGraphicsEllipseItem, QGraphicsPathItem, QInputDialog, QMessageBox # Додано QInputDialog, QMessageBox
 
 log = logging.getLogger(__name__) # Створюємо логгер для цього модуля
 
@@ -221,6 +221,11 @@ class Socket(QGraphicsEllipseItem):
             # log.warning(f"Attempted to remove non-existent connection from socket {self.socket_name} on node {self.parent_node.id if self.parent_node else '?'}")
             pass # Не логуємо, це може бути нормальним при komplexних undo/redo
 
+# --- ЗМІНА: Додано відступ для pass ---
+# Ця функція, ймовірно, зайва тут, але виправлення IndentationError
+def _update_properties_panel_ui(self):
+    pass
+# --- КІНЕЦЬ ЗМІНИ ---
 
 class BaseNode(QGraphicsItem):
     # node_type тут тепер зберігає display name для UI
@@ -1114,15 +1119,18 @@ class MacroNode(BaseNode):
         main_window = None
         # --- [ЗМІНА] Безпечніший спосіб отримати main_window ---
         view = self.scene().views()[0] if self.scene() and self.scene().views() else None
+        # --- ВИПРАВЛЕННЯ: Додано перевірку parent() ---
         if view and hasattr(view, 'parent') and callable(view.parent):
              parent_widget = view.parent()
-             # Перевіряємо, чи батьківський віджет має атрибут project_data (краще, ніж перевірка типу)
-             if hasattr(parent_widget, 'project_data'):
+             # Перевіряємо, чи батьківський віджет має атрибут project_manager (замість project_data)
+             if hasattr(parent_widget, 'project_manager'):
                   main_window = parent_widget
-        # --- [КІНЕЦЬ ЗМІНИ] ---
+        # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
 
-        if self.macro_id and main_window: # main_window вже перевірено на project_data
-              macro_def = main_window.project_data.get('macros', {}).get(self.macro_id)
+        # --- ВИПРАВЛЕННЯ: Використовуємо project_manager ---
+        if self.macro_id and main_window: # main_window вже перевірено
+              macro_def = main_window.project_manager.get_macro_data(self.macro_id)
+              # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
               if macro_def:
                    macro_name = macro_def.get('name', 'Без імені')
               else: # Додано логування, якщо визначення не знайдено
@@ -1143,20 +1151,26 @@ class MacroNode(BaseNode):
          main_window = None
          # --- [ЗМІНА] Безпечніший спосіб отримати main_window ---
          view = self.scene().views()[0] if self.scene() and self.scene().views() else None
+         # --- ВИПРАВЛЕННЯ: Додано перевірку parent() ---
          if view and hasattr(view, 'parent') and callable(view.parent):
               parent_widget = view.parent()
-              if hasattr(parent_widget, 'project_data'):
+              # --- ВИПРАВЛЕННЯ: Перевіряємо project_manager ---
+              if hasattr(parent_widget, 'project_manager'):
                    main_window = parent_widget
-         # --- [КІНЕЦЬ ЗМІНИ] ---
+         # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
 
          if not self.macro_id:
               self.set_validation_state(False, "Макровузол не прив'язаний до визначення макросу (відсутній macro_id).")
               return False
-         elif not main_window or self.macro_id not in main_window.project_data.get('macros', {}): # Перевірка main_window додана
+         # --- ВИПРАВЛЕННЯ: Використовуємо project_manager ---
+         elif not main_window or not main_window.project_manager.get_macro_data(self.macro_id): # Перевірка main_window додана
+              # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
               self.set_validation_state(False, f"Визначення макросу з ID '{self.macro_id}' не знайдено в проекті.")
               return False
          else:
-              macro_data = main_window.project_data['macros'][self.macro_id]
+              # --- ВИПРАВЛЕННЯ: Використовуємо project_manager ---
+              macro_data = main_window.project_manager.get_macro_data(self.macro_id)
+              # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
               defined_input_names = {inp['name'] for inp in macro_data.get('inputs', [])}
               defined_output_names = {out['name'] for out in macro_data.get('outputs', [])}
               current_input_names = {sock.socket_name for sock in self.get_input_sockets()}
