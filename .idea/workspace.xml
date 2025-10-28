@@ -4,9 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="c2ae79a1-7d45-483a-9cb3-10c6ce259a0d" name="Changes" comment="V1.12 Alpha after refactoring">
+    <list default="true" id="c2ae79a1-7d45-483a-9cb3-10c6ce259a0d" name="Changes" comment="V1.14 Stable after refactoring">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main_window.py" beforeDir="false" afterPath="$PROJECT_DIR$/main_window.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/commands.py" beforeDir="false" afterPath="$PROJECT_DIR$/commands.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/nodes.py" beforeDir="false" afterPath="$PROJECT_DIR$/nodes.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -217,7 +217,15 @@
       <option name="project" value="LOCAL" />
       <updated>1761576714353</updated>
     </task>
-    <option name="localTasksCounter" value="15" />
+    <task id="LOCAL-00015" summary="V1.14 Stable after refactoring">
+      <option name="closed" value="true" />
+      <created>1761638935288</created>
+      <option name="number" value="00015" />
+      <option name="presentableId" value="LOCAL-00015" />
+      <option name="project" value="LOCAL" />
+      <updated>1761638935288</updated>
+    </task>
+    <option name="localTasksCounter" value="16" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -244,6 +252,7 @@
     <MESSAGE value="V1.10 Alpha. macros scenarios" />
     <MESSAGE value="V1.11 Alpha with macros" />
     <MESSAGE value="V1.12 Alpha after refactoring" />
-    <option name="LAST_COMMIT_MESSAGE" value="V1.12 Alpha after refactoring" />
+    <MESSAGE value="V1.14 Stable after refactoring" />
+    <option name="LAST_COMMIT_MESSAGE" value="V1.14 Stable after refactoring" />
   </component>
 </project>

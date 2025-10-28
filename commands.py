@@ -1373,14 +1373,29 @@ class CreateMacroCommand(QUndoCommand):
                     new_from, new_to = old_id_to_new_id.get(conn_data['from_node']), old_id_to_new_id.get(conn_data['to_node'])
                     if new_from and new_to: conn_data['from_node'], conn_data['to_node'] = new_from, new_to; internal_connections_data.append(conn_data)
                 elif not start_in and end_in: potential_inputs.append((end_node.pos().y(), conn.to_data(), conn))
-                elif start_in and not end_in: potential_outputs.append((start_node.pos().y(), conn.to_data(), conn))
+                # --- ЗМІНА: Додаємо X-координату ВНУТРІШНЬОГО вузла для сортування виходів ---
+                elif start_in and not end_in: potential_outputs.append((start_node.pos().x(), conn.to_data(), conn))
+                # --- КІНЕЦЬ ЗМІНИ ---
         except Exception as e: log.error(f"Error analyzing connections: {e}", exc_info=True); return None, None
 
         try:
+            # Сортуємо входи за Y-позицією зовнішнього вузла (залишаємо як було)
             potential_inputs.sort(key=lambda x: x[2].start_socket.parentItem().pos().y())
-            potential_outputs.sort(key=lambda x: x[2].end_socket.parentItem().pos().y())
-            log.debug("Sorted IO by external node Y-pos.")
-        except Exception as e: log.error(f"Err sort IO: {e}. Fallback.", exc_info=True); potential_inputs.sort(key=lambda x: x[0]); potential_outputs.sort(key=lambda x: x[0])
+            log.debug("Sorted potential inputs by external node Y-pos.") # Діагностика
+
+            # --- ЗМІНА: Сортуємо виходи за X-позицією ВНУТРІШНЬОГО вузла ---
+            # Використовуємо x[0], де ми зберегли start_node.pos().x()
+            potential_outputs.sort(key=lambda x: x[0])
+            log.debug("Sorted potential outputs by INTERNAL node X-pos.") # Оновлено діагностику
+            # --- КІНЕЦЬ ЗМІНИ ---
+            # --- Додано діагностику відсортованих виходів ---
+            log.debug(f"Sorted potential_outputs (by internal X):") # Діагностика
+            for x_pos, conn_data, conn_obj in potential_outputs:
+                 start_node = conn_obj.start_socket.parentItem()
+                 end_node = conn_obj.end_socket.parentItem()
+                 log.debug(f"  - Internal Node: {start_node.id} ({start_node.node_name}) at X={x_pos:.1f} -> External Node: {end_node.id} ({end_node.node_name})") # Діагностика
+            # --- КІНЕЦЬ діагностики ---
+        except Exception as e: log.error(f"Err sort IO: {e}. Fallback.", exc_info=True); potential_inputs.sort(key=lambda x: x[0]); potential_outputs.sort(key=lambda x: x[0]) # Fallback залишається
 
         macro_inputs, macro_outputs = [], []
         input_name_base, output_name_base = "Вхід", "Вихід"

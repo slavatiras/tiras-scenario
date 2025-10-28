@@ -1,13 +1,15 @@
 import uuid
-import logging # Додано для логування
-from copy import deepcopy # <-- ДОДАНО ІМПОРТ
+import logging  # Додано для логування
+from copy import deepcopy  # <-- ДОДАНО ІМПОРТ
 from enum import Enum, auto
 from lxml import etree as ET
-from PyQt6.QtGui import QColor, QPen, QBrush, QFont, QPainterPath, QTextCursor, QTextOption # Додано QTextOption
+from PyQt6.QtGui import QColor, QPen, QBrush, QFont, QPainterPath, QTextCursor, QTextOption  # Додано QTextOption
 from PyQt6.QtCore import Qt, QRectF, QPointF
-from PyQt6.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem, QGraphicsEllipseItem, QGraphicsPathItem, QInputDialog, QMessageBox # Додано QInputDialog, QMessageBox
+from PyQt6.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem, QGraphicsEllipseItem, \
+    QGraphicsPathItem, QInputDialog, QMessageBox  # Додано QInputDialog, QMessageBox
 
-log = logging.getLogger(__name__) # Створюємо логгер для цього модуля
+log = logging.getLogger(__name__)  # Створюємо логгер для цього модуля
+
 
 def generate_short_id():
     """
@@ -24,7 +26,7 @@ class Connection(QGraphicsPathItem):
         self.selected_pen = QPen(QColor("#fffc42"), 3)
         self.active_pen = QPen(QColor(93, 173, 226), 2.5)
         self.setPen(self.default_pen)
-        self.setZValue(0) # З'єднання мають бути під вузлами
+        self.setZValue(0)  # З'єднання мають бути під вузлами
         if self.start_socket: self.start_socket.add_connection(self)
         if self.end_socket: self.end_socket.add_connection(self)
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
@@ -40,25 +42,25 @@ class Connection(QGraphicsPathItem):
     def set_active_state(self, active):
         if active:
             self.setPen(self.active_pen)
-            self.setZValue(2) # Активні з'єднання найвище
+            self.setZValue(2)  # Активні з'єднання найвище
         else:
             is_selected = self.isSelected()
             self.setPen(self.selected_pen if is_selected else self.default_pen)
-            self.setZValue(1 if is_selected else 0) # Повертаємо Z-індекс
+            self.setZValue(1 if is_selected else 0)  # Повертаємо Z-індекс
 
     def update_path(self):
         # Перевірка чи сокети ще існують і прив'язані до сцени
         if not self.start_socket or not self.end_socket or \
-           not self.start_socket.scene() or not self.end_socket.scene() or \
-           not self.start_socket.parentItem() or not self.end_socket.parentItem() or \
-           not self.start_socket.parentItem().scene() or not self.end_socket.parentItem().scene():
+                not self.start_socket.scene() or not self.end_socket.scene() or \
+                not self.start_socket.parentItem() or not self.end_socket.parentItem() or \
+                not self.start_socket.parentItem().scene() or not self.end_socket.parentItem().scene():
             # log.warning(f"Connection.update_path(): Invalid sockets or parent nodes found for connection between {self.start_socket.parentItem().id if self.start_socket and self.start_socket.parentItem() else '?'} and {self.end_socket.parentItem().id if self.end_socket and self.end_socket.parentItem() else '?'}. Removing connection.")
             # Якщо сокети або їх батьки недійсні, видаляємо з'єднання
             if self.scene():
                 # Обережно видаляємо посилання перед видаленням зі сцени
                 if self.start_socket: self.start_socket.remove_connection(self)
                 if self.end_socket: self.end_socket.remove_connection(self)
-                try: # Додаємо try-except навколо removeItem
+                try:  # Додаємо try-except навколо removeItem
                     self.scene().removeItem(self)
                 except Exception as e:
                     log.error(f"Error removing connection during update_path: {e}", exc_info=True)
@@ -67,7 +69,7 @@ class Connection(QGraphicsPathItem):
         p1, p2 = self.start_socket.scenePos(), self.end_socket.scenePos()
         path = QPainterPath(p1)
 
-        try: # Додаємо try-except навколо розрахунку кривої та setPath
+        try:  # Додаємо try-except навколо розрахунку кривої та setPath
             # --- Повертаємо логіку кривої Безьє ---
             dx = p2.x() - p1.x()
             dy = p2.y() - p1.y()
@@ -79,7 +81,7 @@ class Connection(QGraphicsPathItem):
 
             # Якщо вузли дуже близько по вертикалі або перекриваються горизонтально,
             # робимо S-подібну криву
-            vertical_threshold = 40 # Збільшуємо поріг
+            vertical_threshold = 40  # Збільшуємо поріг
             # Використовуємо ширину батьківських елементів для розрахунку перекриття
             start_node_width = self.start_socket.parentItem().width if self.start_socket.parentItem() else 180
             end_node_width = self.end_socket.parentItem().width if self.end_socket.parentItem() else 180
@@ -87,21 +89,20 @@ class Connection(QGraphicsPathItem):
             horizontal_overlap_threshold = (start_node_width + end_node_width) / 2
 
             # Додаткова умова: якщо кінцевий вузол значно вище початкового
-            is_end_node_higher = dy < -vertical_threshold * 2 # Наприклад, вдвічі більше порогу
+            is_end_node_higher = dy < -vertical_threshold * 2  # Наприклад, вдвічі більше порогу
 
             if abs(dy) < vertical_threshold or abs(dx) < horizontal_overlap_threshold or is_end_node_higher:
-                 # Використовуємо половину горизонтальної відстані, але не менше певного значення
-                 offset_x = max(80, abs(dx) * 0.5) # Збільшуємо мінімальний горизонтальний вигин
-                 # Змінюємо вертикальний вигин залежно від dy
-                 offset_y = 70 if abs(dy) < vertical_threshold else 40 # Менший вигин, якщо вузли далеко по вертикалі
+                # Використовуємо половину горизонтальної відстані, але не менше певного значення
+                offset_x = max(80, abs(dx) * 0.5)  # Збільшуємо мінімальний горизонтальний вигин
+                # Змінюємо вертикальний вигин залежно від dy
+                offset_y = 70 if abs(dy) < vertical_threshold else 40  # Менший вигин, якщо вузли далеко по вертикалі
 
-                 # Якщо кінцевий вузол значно вище, робимо вигин "через верх"
-                 if is_end_node_higher:
-                      offset_y = -abs(offset_y) # Інвертуємо вертикальний зсув
+                # Якщо кінцевий вузол значно вище, робимо вигин "через верх"
+                if is_end_node_higher:
+                    offset_y = -abs(offset_y)  # Інвертуємо вертикальний зсув
 
-                 ctrl1 = p1 + QPointF(offset_x if dx > 0 else -offset_x, offset_y)
-                 ctrl2 = p2 - QPointF(offset_x if dx > 0 else -offset_x, offset_y)
-
+                ctrl1 = p1 + QPointF(offset_x if dx > 0 else -offset_x, offset_y)
+                ctrl2 = p2 - QPointF(offset_x if dx > 0 else -offset_x, offset_y)
 
             path.cubicTo(ctrl1, ctrl2, p2)
             # --- Кінець логіки кривої Безьє ---
@@ -109,15 +110,14 @@ class Connection(QGraphicsPathItem):
             self.setPath(path)
 
         except Exception as e:
-             log.error(f"Error calculating or setting connection path: {e}", exc_info=True)
-             # Якщо сталася помилка, малюємо просту пряму лінію як запасний варіант
-             path = QPainterPath(p1)
-             path.lineTo(p2)
-             try:
-                  self.setPath(path)
-             except Exception as e2:
-                  log.error(f"Failed to set fallback line path: {e2}", exc_info=True)
-
+            log.error(f"Error calculating or setting connection path: {e}", exc_info=True)
+            # Якщо сталася помилка, малюємо просту пряму лінію як запасний варіант
+            path = QPainterPath(p1)
+            path.lineTo(p2)
+            try:
+                self.setPath(path)
+            except Exception as e2:
+                log.error(f"Failed to set fallback line path: {e2}", exc_info=True)
 
     def to_data(self):
         start_node = self.start_socket.parentItem() if self.start_socket else None
@@ -130,10 +130,10 @@ class Connection(QGraphicsPathItem):
                     'from_node': start_node.id,
                     'from_socket': self.start_socket.socket_name,
                     'to_node': end_node.id,
-                    'to_socket': self.end_socket.socket_name # Зберігаємо ім'я цільового сокета
+                    'to_socket': self.end_socket.socket_name  # Зберігаємо ім'я цільового сокета
                 }
         # log.warning(f"Connection.to_data(): Invalid connection detected (start={start_node}, end={end_node})")
-        return {} # Return empty if connection is invalid
+        return {}  # Return empty if connection is invalid
 
     def to_xml(self, parent_element):
         data = self.to_data()
@@ -146,7 +146,7 @@ class Connection(QGraphicsPathItem):
             'from_node': xml_element.get("from_node"),
             'from_socket': xml_element.get("from_socket", "out"),  # Fallback for old format
             'to_node': xml_element.get("to_node"),
-            'to_socket': xml_element.get("to_socket", "in") # Додано читання цільового сокета
+            'to_socket': xml_element.get("to_socket", "in")  # Додано читання цільового сокета
         }
 
     @classmethod
@@ -162,7 +162,7 @@ class Connection(QGraphicsPathItem):
             "from_node": str(conn_data.get('from_node', '')),
             "from_socket": str(conn_data.get('from_socket', 'out')),
             "to_node": str(conn_data.get('to_node', '')),
-            "to_socket": str(conn_data.get('to_socket', 'in')) # Додано збереження цільового сокета
+            "to_socket": str(conn_data.get('to_socket', 'in'))  # Додано збереження цільового сокета
         }
         ET.SubElement(parent_element, "connection", **attrs)
 
@@ -170,10 +170,10 @@ class Connection(QGraphicsPathItem):
 class Socket(QGraphicsEllipseItem):
     def __init__(self, parent_node, socket_name="in", is_output=False, display_name=None):
         super().__init__(-6, -6, 12, 12, parent_node)
-        self.parent_node = parent_node # Зберігаємо посилання на батьківський вузол
+        self.parent_node = parent_node  # Зберігаємо посилання на батьківський вузол
         self.is_output, self.connections = is_output, []
-        self.socket_name = socket_name # e.g., "in", "out", "out_true", "macro_in_1", "macro_out_exec"
-        self.display_name = display_name if display_name else socket_name # Ім'я для відображення (ToolTip)
+        self.socket_name = socket_name  # e.g., "in", "out", "out_true", "macro_in_1", "macro_out_exec"
+        self.display_name = display_name if display_name else socket_name  # Ім'я для відображення (ToolTip)
         self.default_brush = QBrush(QColor("#d4d4d4"))
         self.hover_brush = QBrush(QColor("#77dd77"))
         self.is_highlighted = False
@@ -181,7 +181,7 @@ class Socket(QGraphicsEllipseItem):
         self.setPen(QPen(QColor("#3f3f3f"), 2))
         self.setAcceptHoverEvents(True)
         self.setZValue(2)
-        self.setToolTip(self.display_name) # Показуємо ім'я сокета при наведенні
+        self.setToolTip(self.display_name)  # Показуємо ім'я сокета при наведенні
 
     def hoverEnterEvent(self, event):
         view = self.scene().views()[0] if self.scene().views() else None
@@ -191,7 +191,7 @@ class Socket(QGraphicsEllipseItem):
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event):
-        if not self.is_highlighted: # Залишаємо підсвіченим, якщо це валідна ціль
+        if not self.is_highlighted:  # Залишаємо підсвіченим, якщо це валідна ціль
             self.setBrush(self.default_brush)
         super().hoverLeaveEvent(event)
 
@@ -204,11 +204,10 @@ class Socket(QGraphicsEllipseItem):
         if highlight:
             self.setBrush(self.hover_brush)
         elif is_hovered:
-            self.setBrush(self.hover_brush) # Залишаємо hover, якщо не валідна ціль, але миша над ним
+            self.setBrush(self.hover_brush)  # Залишаємо hover, якщо не валідна ціль, але миша над ним
         else:
             self.setBrush(self.default_brush)
         self.update()
-
 
     def add_connection(self, connection):
         if connection not in self.connections:
@@ -219,34 +218,37 @@ class Socket(QGraphicsEllipseItem):
             self.connections.remove(connection)
         else:
             # log.warning(f"Attempted to remove non-existent connection from socket {self.socket_name} on node {self.parent_node.id if self.parent_node else '?'}")
-            pass # Не логуємо, це може бути нормальним при komplexних undo/redo
+            pass  # Не логуємо, це може бути нормальним при komplexних undo/redo
+
 
 # --- ЗМІНА: Додано відступ для pass ---
 # Ця функція, ймовірно, зайва тут, але виправлення IndentationError
 def _update_properties_panel_ui(self):
     pass
+
+
 # --- КІНЕЦЬ ЗМІНИ ---
 
 class BaseNode(QGraphicsItem):
     # node_type тут тепер зберігає display name для UI
     def __init__(self, name="Вузол", node_type="Base", color=QColor("#4A90E2"), icon="●"):
         super().__init__()
-        self.id = generate_short_id() # Используем короткий ID
-        self._node_name = name if name is not None else "Вузол" # Ensure string
+        self.id = generate_short_id()  # Используем короткий ID
+        self._node_name = name if name is not None else "Вузол"  # Ensure string
         self._description = ""
-        self.node_type = node_type # This should be the display name (key in NODE_REGISTRY)
+        self.node_type = node_type  # This should be the display name (key in NODE_REGISTRY)
         self.node_color = color
         self.node_icon = icon
-        self.width, self.height = 180, 85 # Default size
+        self.width, self.height = 180, 85  # Default size
         self.properties = []
-        self._sockets = {} # Dictionary to store sockets {socket_name: Socket}
+        self._sockets = {}  # Dictionary to store sockets {socket_name: Socket}
         self.setFlags(self.flags() | QGraphicsItem.GraphicsItemFlag.ItemIsMovable |
                       QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
                       QGraphicsItem.GraphicsItemFlag.ItemSendsScenePositionChanges)
-        self.setZValue(1) # Вузли над з'єднаннями (Z=0)
+        self.setZValue(1)  # Вузли над з'єднаннями (Z=0)
         self.active_pen = QPen(QColor(93, 173, 226), 2, Qt.PenStyle.DashLine)
         self._create_elements();
-        self._create_sockets() # Now calls the specific implementation if overridden
+        self._create_sockets()  # Now calls the specific implementation if overridden
         self._create_validation_indicator()
 
     @property
@@ -255,9 +257,9 @@ class BaseNode(QGraphicsItem):
 
     @node_name.setter
     def node_name(self, value):
-        self._node_name = value if value is not None else "" # Ensure string
-        if hasattr(self, 'name_text'): # Check if element exists
-             self.name_text.setPlainText(self._node_name)
+        self._node_name = value if value is not None else ""  # Ensure string
+        if hasattr(self, 'name_text'):  # Check if element exists
+            self.name_text.setPlainText(self._node_name)
 
     @property
     def description(self):
@@ -265,7 +267,7 @@ class BaseNode(QGraphicsItem):
 
     @description.setter
     def description(self, value):
-        self._description = value if value is not None else "" # Ensure string
+        self._description = value if value is not None else ""  # Ensure string
 
     def _create_elements(self):
         # Прямокутник вузла
@@ -301,7 +303,6 @@ class BaseNode(QGraphicsItem):
         # Обмеження ширини тексту властивостей
         self.properties_text.setTextWidth(self.width - 16)
 
-
     def add_socket(self, name, is_output=False, position=None, display_name=None):
         """Adds a socket to the node."""
         if name in self._sockets:
@@ -310,48 +311,47 @@ class BaseNode(QGraphicsItem):
         socket = Socket(self, socket_name=name, is_output=is_output, display_name=display_name)
         if position:
             socket.setPos(position)
-        else: # Автоматичне розміщення, якщо позиція не вказана (дуже базове)
-             count = len(self.get_input_sockets() if not is_output else self.get_output_sockets())
-             spacing = 30
-             y_pos = 0 if not is_output else self.height
-             x_pos = (self.width / 2) + (count - 0.5 * (len(self._sockets) -1) ) * spacing # Приблизно центруємо
-             socket.setPos(x_pos, y_pos)
+        else:  # Автоматичне розміщення, якщо позиція не вказана (дуже базове)
+            count = len(self.get_input_sockets() if not is_output else self.get_output_sockets())
+            spacing = 30
+            y_pos = 0 if not is_output else self.height
+            x_pos = (self.width / 2) + (count - 0.5 * (len(self._sockets) - 1)) * spacing  # Приблизно центруємо
+            socket.setPos(x_pos, y_pos)
 
         self._sockets[name] = socket
         return socket
 
     def remove_socket(self, name):
-         """Removes a socket and disconnects its connections."""
-         socket = self._sockets.pop(name, None)
-         if socket:
-              # Від'єднуємо всі з'єднання від цього сокету
-              for conn in list(socket.connections): # Копіюємо список перед ітерацією
-                   # Видаляємо посилання на з'єднання з іншого сокету
-                   other_socket = conn.start_socket if conn.end_socket == socket else conn.end_socket
-                   if other_socket:
-                        other_socket.remove_connection(conn)
-                   # Видаляємо саме з'єднання зі сцени
-                   if conn.scene():
-                        try: # Додаємо try-except
-                             conn.scene().removeItem(conn)
-                        except Exception as e:
-                             log.error(f"Error removing connection during socket removal: {e}", exc_info=True)
-              # Видаляємо сокет зі сцени
-              if socket.scene():
-                   try: # Додаємо try-except
-                        socket.scene().removeItem(socket)
-                   except Exception as e:
-                        log.error(f"Error removing socket from scene: {e}", exc_info=True)
+        """Removes a socket and disconnects its connections."""
+        socket = self._sockets.pop(name, None)
+        if socket:
+            # Від'єднуємо всі з'єднання від цього сокету
+            for conn in list(socket.connections):  # Копіюємо список перед ітерацією
+                # Видаляємо посилання на з'єднання з іншого сокету
+                other_socket = conn.start_socket if conn.end_socket == socket else conn.end_socket
+                if other_socket:
+                    other_socket.remove_connection(conn)
+                # Видаляємо саме з'єднання зі сцени
+                if conn.scene():
+                    try:  # Додаємо try-except
+                        conn.scene().removeItem(conn)
+                    except Exception as e:
+                        log.error(f"Error removing connection during socket removal: {e}", exc_info=True)
+            # Видаляємо сокет зі сцени
+            if socket.scene():
+                try:  # Додаємо try-except
+                    socket.scene().removeItem(socket)
+                except Exception as e:
+                    log.error(f"Error removing socket from scene: {e}", exc_info=True)
 
-              log.debug(f"Removed socket '{name}' from node {self.id}")
+            log.debug(f"Removed socket '{name}' from node {self.id}")
 
     def clear_sockets(self):
-         """Removes all sockets from the node."""
-         log.debug(f"Clearing all sockets from node {self.id}")
-         for name in list(self._sockets.keys()): # Копіюємо ключі
-              self.remove_socket(name)
-         self._sockets = {}
-
+        """Removes all sockets from the node."""
+        log.debug(f"Clearing all sockets from node {self.id}")
+        for name in list(self._sockets.keys()):  # Копіюємо ключі
+            self.remove_socket(name)
+        self._sockets = {}
 
     def get_socket(self, name):
         """Retrieves a socket by name."""
@@ -359,17 +359,28 @@ class BaseNode(QGraphicsItem):
 
     # Simplified access for common sockets (optional, for backward compatibility or convenience)
     @property
-    def in_socket(self): return self.get_socket("in")
+    def in_socket(self):
+        return self.get_socket("in")
+
     @property
-    def out_socket(self): return self.get_socket("out")
+    def out_socket(self):
+        return self.get_socket("out")
+
     @property
-    def out_socket_true(self): return self.get_socket("out_true")
+    def out_socket_true(self):
+        return self.get_socket("out_true")
+
     @property
-    def out_socket_false(self): return self.get_socket("out_false")
+    def out_socket_false(self):
+        return self.get_socket("out_false")
+
     @property
-    def out_socket_loop(self): return self.get_socket("out_loop")
+    def out_socket_loop(self):
+        return self.get_socket("out_loop")
+
     @property
-    def out_socket_end(self): return self.get_socket("out_end")
+    def out_socket_end(self):
+        return self.get_socket("out_end")
 
     def get_all_sockets(self):
         """Returns a list of all socket objects."""
@@ -392,21 +403,20 @@ class BaseNode(QGraphicsItem):
 
         log.debug(f"_create_sockets running for {type(self).__name__} {self.id}")
         if not isinstance(self, no_input_nodes):
-             self.add_socket("in", is_output=False, position=QPointF(self.width / 2, 0), display_name="Вхід")
+            self.add_socket("in", is_output=False, position=QPointF(self.width / 2, 0), display_name="Вхід")
         if not isinstance(self, no_output_nodes):
             self.add_socket("out", is_output=True, position=QPointF(self.width / 2, self.height), display_name="Вихід")
-
 
     def _create_validation_indicator(self):
         self.error_icon = QGraphicsTextItem("⚠️", self)
         self.error_icon.setFont(QFont("Arial", 12))
         self.error_icon.setPos(self.width - 24, 2)
-        self.error_icon.setZValue(3) # Над іншими елементами вузла
+        self.error_icon.setZValue(3)  # Над іншими елементами вузла
         self.error_icon.setVisible(False)
 
     def set_validation_state(self, is_valid, message=""):
         self.error_icon.setVisible(not is_valid)
-        self.error_icon.setToolTip(message if not is_valid else "") # Повідомлення тільки для помилки
+        self.error_icon.setToolTip(message if not is_valid else "")  # Повідомлення тільки для помилки
 
     def set_active_state(self, active):
         if active:
@@ -416,7 +426,6 @@ class BaseNode(QGraphicsItem):
             self.rect.setPen(QPen(QColor("#fffc42"), 2) if is_selected else QPen(Qt.GlobalColor.black, 1))
         # Оновлюємо ZValue, щоб активний/вибраний вузол був вище
         self.setZValue(3 if active else 2 if self.isSelected() else 1)
-
 
     def validate(self, config):
         # Базова валідація - просто скидаємо помилку
@@ -448,15 +457,16 @@ class BaseNode(QGraphicsItem):
                 # Check if connection list exists and socket is valid before iterating
                 if hasattr(socket, 'connections') and socket.scene():
                     for conn in socket.connections:
-                         # Ensure connection is also valid before updating
-                         if conn and conn.scene():
-                              try: # Додаємо try-except
-                                   conn.update_path()
-                              except Exception as e:
-                                   log.error(f"Error updating connection path for conn {getattr(conn, 'id', conn)} during node move: {e}", exc_info=True)
+                        # Ensure connection is also valid before updating
+                        if conn and conn.scene():
+                            try:  # Додаємо try-except
+                                conn.update_path()
+                            except Exception as e:
+                                log.error(
+                                    f"Error updating connection path for conn {getattr(conn, 'id', conn)} during node move: {e}",
+                                    exc_info=True)
 
         return super().itemChange(change, value)
-
 
     def boundingRect(self):
         extra = 10
@@ -467,14 +477,14 @@ class BaseNode(QGraphicsItem):
         return QRectF(-extra, -extra, rect_width + 2 * extra, rect_height + 2 * extra)
 
     def paint(self, painter, option, widget):
-        pass # Base class does not paint itself, children elements do
+        pass  # Base class does not paint itself, children elements do
 
     def to_data(self):
         # Зберігаємо ім'я класу
         class_name = self.__class__.__name__
         data = {'id': self.id, 'node_type': class_name, 'name': self.node_name,
                 'description': self.description, 'pos': (self.pos().x(), self.pos().y()),
-                'properties': deepcopy(self.properties)} # Копіюємо властивості
+                'properties': deepcopy(self.properties)}  # Копіюємо властивості
         # Add macro specific data if needed
         if isinstance(self, MacroNode):
             data['macro_id'] = self.macro_id
@@ -497,7 +507,7 @@ class BaseNode(QGraphicsItem):
         if props_el is not None:
             for prop_el in props_el:
                 key, value_str = prop_el.get("key"), prop_el.get("value")
-                value = value_str # Default to string
+                value = value_str  # Default to string
                 if key == 'zones':
                     # Ensure list even if empty, handle potential None for value_str
                     value = value_str.split(',') if value_str else []
@@ -506,16 +516,17 @@ class BaseNode(QGraphicsItem):
                         # Handle potential None for value_str
                         value = int(value_str) if value_str is not None else 0
                     except (ValueError, TypeError):
-                         log.warning(f"Could not convert property '{key}' value '{value_str}' to int for node {data.get('id')}. Using default 0.")
-                         value = 0 # Default to 0 on error
+                        log.warning(
+                            f"Could not convert property '{key}' value '{value_str}' to int for node {data.get('id')}. Using default 0.")
+                        value = 0  # Default to 0 on error
                 # Handle None key or value gracefully
                 if key is not None:
-                     data['properties'].append((key, value))
+                    data['properties'].append((key, value))
                 else:
-                     log.warning(f"Found property with None key for node {data.get('id')}. Skipping.")
+                    log.warning(f"Found property with None key for node {data.get('id')}. Skipping.")
 
         # Add macro specific data if needed
-        if node_class_name == 'MacroNode': # Перевіряємо за ім'ям класу
+        if node_class_name == 'MacroNode':  # Перевіряємо за ім'ям класу
             data['macro_id'] = xml_element.get('macro_id')
         return data
 
@@ -524,13 +535,13 @@ class BaseNode(QGraphicsItem):
         # Ensure all attribute values are strings and handle potential None
         attrs = {
             'id': str(node_data.get('id', '')),
-            'type': str(node_data.get('node_type', '')), # Now saving class name
+            'type': str(node_data.get('node_type', '')),  # Now saving class name
             'name': str(node_data.get('name', '')),
             'x': str(node_data.get('pos', [0, 0])[0]),
             'y': str(node_data.get('pos', [0, 0])[1])
         }
         # Add macro specific attributes, ensuring it's a string
-        if node_data.get('node_type') == 'MacroNode': # Check against class name
+        if node_data.get('node_type') == 'MacroNode':  # Check against class name
             attrs['macro_id'] = str(node_data.get('macro_id', ''))
 
         node_el = ET.SubElement(parent_element, "node", **attrs)
@@ -541,30 +552,30 @@ class BaseNode(QGraphicsItem):
 
         # Ensure 'properties' exists and is a list before iterating
         properties = node_data.get('properties')
-        if properties and isinstance(properties, (list, tuple)): # Allow tuples too
+        if properties and isinstance(properties, (list, tuple)):  # Allow tuples too
             props_el = ET.SubElement(node_el, "properties")
             for prop_item in properties:
-                 # Check if prop_item is a tuple/list of size 2
-                 if isinstance(prop_item, (list, tuple)) and len(prop_item) == 2:
-                      key, value = prop_item
-                      # Ensure key and value are not None before converting to string
-                      prop_attrs = {
-                           "key": str(key) if key is not None else "",
-                           # Convert value to string, handle lists specifically
-                           "value": ",".join(map(str, value)) if isinstance(value, list) else str(value if value is not None else "")
-                      }
-                      ET.SubElement(props_el, "property", **prop_attrs)
-                 else:
-                      log.warning(f"Skipping invalid property item: {prop_item} for node {attrs.get('id')}")
+                # Check if prop_item is a tuple/list of size 2
+                if isinstance(prop_item, (list, tuple)) and len(prop_item) == 2:
+                    key, value = prop_item
+                    # Ensure key and value are not None before converting to string
+                    prop_attrs = {
+                        "key": str(key) if key is not None else "",
+                        # Convert value to string, handle lists specifically
+                        "value": ",".join(map(str, value)) if isinstance(value, list) else str(
+                            value if value is not None else "")
+                    }
+                    ET.SubElement(props_el, "property", **prop_attrs)
+                else:
+                    log.warning(f"Skipping invalid property item: {prop_item} for node {attrs.get('id')}")
 
         return node_el
 
-
     @classmethod
     def from_data(cls, data):
-        log.debug(f"BaseNode.from_data called with data: {data}") # Діагностика
-        node_class_name = data.get('node_type') # This is now the class name
-        node_class = BaseNode # Default fallback
+        log.debug(f"BaseNode.from_data called with data: {data}")  # Діагностика
+        node_class_name = data.get('node_type')  # This is now the class name
+        node_class = BaseNode  # Default fallback
 
         # Find the class by iterating through registry values (classes)
         if node_class_name:
@@ -573,51 +584,52 @@ class BaseNode(QGraphicsItem):
                 if registry_class.__name__ == node_class_name:
                     node_class = registry_class
                     found = True
-                    log.debug(f"Found class {node_class_name} in registry.") # Діагностика
+                    log.debug(f"Found class {node_class_name} in registry.")  # Діагностика
                     break
-            if not found: # If loop finished without break
-                 log.warning(f"Node class '{node_class_name}' not found in NODE_REGISTRY. Using BaseNode.")
-                 node_class_name = "BaseNode (Fallback)" # Для логування
+            if not found:  # If loop finished without break
+                log.warning(f"Node class '{node_class_name}' not found in NODE_REGISTRY. Using BaseNode.")
+                node_class_name = "BaseNode (Fallback)"  # Для логування
         else:
             log.warning(f"Node data is missing 'node_type'. Using BaseNode. Data: {data}")
-            node_class_name = "BaseNode (Missing Type)" # Для логування
+            node_class_name = "BaseNode (Missing Type)"  # Для логування
 
         # Create instance
         try:
-             log.debug(f"Instantiating node of type: {node_class.__name__}") # Діагностика
-             node = node_class() # Call constructor specific to the class
+            log.debug(f"Instantiating node of type: {node_class.__name__}")  # Діагностика
+            node = node_class()  # Call constructor specific to the class
         except Exception as e:
-             log.error(f"Error instantiating node class '{node_class_name}': {e}. Falling back to BaseNode. Data: {data}", exc_info=True)
-             node = BaseNode() # Fallback safely
+            log.error(
+                f"Error instantiating node class '{node_class_name}': {e}. Falling back to BaseNode. Data: {data}",
+                exc_info=True)
+            node = BaseNode()  # Fallback safely
 
         # Set common attributes
-        try: # Додаємо try-except для безпеки
+        try:  # Додаємо try-except для безпеки
             node.id = data.get('id', generate_short_id())
             # Use setters to ensure validation/updates if they exist
-            node.node_name = data.get('name', node_class.__name__) # Use class name as fallback name
+            node.node_name = data.get('name', node_class.__name__)  # Use class name as fallback name
             node.description = data.get('description', '')
             node.setPos(QPointF(*data.get('pos', (0, 0))))
             # Ensure properties is a list, deepcopy might be safer if needed later
             loaded_properties = data.get('properties', [])
             node.properties = list(loaded_properties) if isinstance(loaded_properties, (list, tuple)) else []
-            log.debug(f"Set common attributes for node {node.id} ({node_class_name}).") # Діагностика
+            log.debug(f"Set common attributes for node {node.id} ({node_class_name}).")  # Діагностика
         except Exception as e:
             log.error(f"Error setting common attributes for node {node.id}: {e}. Data: {data}", exc_info=True)
             # Не перериваємо, спробуємо встановити специфічні атрибути
 
-
         # Set specific attributes (like macro_id)
-        try: # Додаємо try-except
+        try:  # Додаємо try-except
             if isinstance(node, MacroNode):
                 node.macro_id = data.get('macro_id')
-                log.debug(f"Set macro_id '{node.macro_id}' for MacroNode {node.id}.") # Діагностика
+                log.debug(f"Set macro_id '{node.macro_id}' for MacroNode {node.id}.")  # Діагностика
                 # Dynamic sockets for MacroNode should be updated later
                 # when the full project data (including macro definitions) is available.
                 # We cannot do it here reliably.
         except Exception as e:
             log.error(f"Error setting specific attributes for node {node.id}: {e}. Data: {data}", exc_info=True)
 
-        log.debug(f"Finished BaseNode.from_data for node {node.id}.") # Діагностика
+        log.debug(f"Finished BaseNode.from_data for node {node.id}.")  # Діагностика
         return node
 
 
@@ -633,7 +645,6 @@ class TriggerNode(BaseNode):
         if 'trigger_type' not in prop_dict: self.properties.append(('trigger_type', 'Пожежа'))
         if 'zones' not in prop_dict: self.properties.append(('zones', []))
 
-
     def _create_sockets(self):
         # Override: Trigger only has an output
         self.add_socket("out", is_output=True, position=QPointF(self.width / 2, self.height), display_name="Вихід")
@@ -645,9 +656,9 @@ class TriggerNode(BaseNode):
         text = f"{trigger_type}\nЗони: {len(zones)}"
         # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
         if hasattr(self, 'properties_text'):
-             self.properties_text.setPlainText(text)
+            self.properties_text.setPlainText(text)
         else:
-             log.warning(f"TriggerNode {self.id} missing 'properties_text'.")
+            log.warning(f"TriggerNode {self.id} missing 'properties_text'.")
         # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
     def validate(self, config):
@@ -658,14 +669,14 @@ class TriggerNode(BaseNode):
             return False
 
         if config:
-            all_zone_ids = set() # Use set for faster lookup
+            all_zone_ids = set()  # Use set for faster lookup
             for device in config.get('devices', []):
                 all_zone_ids.update(z['id'] for z in device.get('zones', []))
 
             missing_zones = [zid for zid in zones_ids_to_check if zid not in all_zone_ids]
             if missing_zones:
-                 self.set_validation_state(False, f"Зони не знайдено: {', '.join(missing_zones)}")
-                 return False
+                self.set_validation_state(False, f"Зони не знайдено: {', '.join(missing_zones)}")
+                return False
 
         self.set_validation_state(True)
         return True
@@ -677,7 +688,7 @@ class ActivateOutputNode(BaseNode):
     def __init__(self):
         super().__init__(name="Активувати вихід", node_type="Дія", color=QColor("#27ae60"), icon=self.ICON)
         if not any(p[0] == 'output_id' for p in self.properties):
-             self.properties.append(('output_id', ''))
+            self.properties.append(('output_id', ''))
 
     def _create_sockets(self):
         # Override: Action nodes only have an input
@@ -688,10 +699,10 @@ class ActivateOutputNode(BaseNode):
         output_id = props.get('output_id')
         output_name = "НЕ ВИБРАНО"
         if config and output_id:
-            all_outputs = {} # Use dict for faster lookup {id: {'name':..., 'parent_name':...}}
+            all_outputs = {}  # Use dict for faster lookup {id: {'name':..., 'parent_name':...}}
             for device in config.get('devices', []):
                 for out in device.get('outputs', []):
-                     all_outputs[out['id']] = {'name': out['name'], 'parent_name': out.get('parent_name', '')}
+                    all_outputs[out['id']] = {'name': out['name'], 'parent_name': out.get('parent_name', '')}
 
             output_info = all_outputs.get(output_id)
             if output_info:
@@ -699,9 +710,9 @@ class ActivateOutputNode(BaseNode):
 
         # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
         if hasattr(self, 'properties_text'):
-             self.properties_text.setPlainText(output_name)
+            self.properties_text.setPlainText(output_name)
         else:
-             log.warning(f"ActivateOutputNode {self.id} missing 'properties_text'.")
+            log.warning(f"ActivateOutputNode {self.id} missing 'properties_text'.")
         # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
     def validate(self, config):
@@ -729,7 +740,7 @@ class DeactivateOutputNode(BaseNode):
     def __init__(self):
         super().__init__(name="Деактивувати вихід", node_type="Дія", color=QColor("#e74c3c"), icon=self.ICON)
         if not any(p[0] == 'output_id' for p in self.properties):
-             self.properties.append(('output_id', ''))
+            self.properties.append(('output_id', ''))
 
     def _create_sockets(self):
         # Override: Action nodes only have an input
@@ -743,17 +754,16 @@ class DeactivateOutputNode(BaseNode):
         if config and output_id:
             all_outputs = {}
             for device in config.get('devices', []):
-                 for out in device.get('outputs', []):
-                      all_outputs[out['id']] = {'name': out['name'], 'parent_name': out.get('parent_name', '')}
+                for out in device.get('outputs', []):
+                    all_outputs[out['id']] = {'name': out['name'], 'parent_name': out.get('parent_name', '')}
             output_info = all_outputs.get(output_id)
             if output_info: output_name = f"{output_info.get('parent_name', '')}: {output_info['name']}"
         # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
         if hasattr(self, 'properties_text'):
-             self.properties_text.setPlainText(output_name)
+            self.properties_text.setPlainText(output_name)
         else:
-             log.warning(f"DeactivateOutputNode {self.id} missing 'properties_text'.")
+            log.warning(f"DeactivateOutputNode {self.id} missing 'properties_text'.")
         # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
-
 
     def validate(self, config):
         # Logic is identical to ActivateOutputNode
@@ -788,9 +798,9 @@ class DelayNode(BaseNode):
         seconds = props.get('seconds', 0)
         # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
         if hasattr(self, 'properties_text'):
-             self.properties_text.setPlainText(f"{seconds} сек.")
+            self.properties_text.setPlainText(f"{seconds} сек.")
         else:
-             log.warning(f"DelayNode {self.id} missing 'properties_text'.")
+            log.warning(f"DelayNode {self.id} missing 'properties_text'.")
         # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
 
@@ -816,9 +826,9 @@ class SendSMSNode(BaseNode):
             user_name = users_map.get(user_id, "НЕ ЗНАЙДЕНО")
         # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
         if hasattr(self, 'properties_text'):
-             self.properties_text.setPlainText(f"Кому: {user_name}")
+            self.properties_text.setPlainText(f"Кому: {user_name}")
         else:
-             log.warning(f"SendSMSNode {self.id} missing 'properties_text'.")
+            log.warning(f"SendSMSNode {self.id} missing 'properties_text'.")
         # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
     def validate(self, config):
@@ -850,32 +860,62 @@ class ConditionNodeZoneState(BaseNode):
         if 'zone_id' not in prop_dict: self.properties.append(('zone_id', ''))
         if 'state' not in prop_dict: self.properties.append(('state', 'Під охороною'))
 
-
     def _create_sockets(self):
         self.add_socket("in", position=QPointF(self.width / 2, 0), display_name="Вхід")
-        self.add_socket("out_true", is_output=True, position=QPointF(self.width * 0.25, self.height), display_name="Успіх")
-        self.add_socket("out_false", is_output=True, position=QPointF(self.width * 0.75, self.height), display_name="Невдача")
+        self.add_socket("out_true", is_output=True, position=QPointF(self.width * 0.25, self.height),
+                        display_name="Успіх")
+        self.add_socket("out_false", is_output=True, position=QPointF(self.width * 0.75, self.height),
+                        display_name="Невдача")
 
         # Labels for sockets (created after sockets)
         out_true_socket = self.get_socket("out_true")
         if out_true_socket:
-            self.true_label = QGraphicsTextItem("✔", self) # Більш лаконічно
-            self.true_label.setDefaultTextColor(QColor("#aaffaa"))
-            font = QFont("Arial", 10, QFont.Weight.Bold)
+            # --- ЗМІНА: Текст, шрифт, колір та позиція ---
+            log.debug(f"  [{self.id}] Creating 'True' label...")  # ДІАГНОСТИКА
+            self.true_label = QGraphicsTextItem("Так", self)  # Використовуємо текст
+            self.true_label.setDefaultTextColor(QColor("#adebad"))  # Світліший зелений
+            font = QFont("Arial", 9, QFont.Weight.Bold)  # Більший шрифт
             self.true_label.setFont(font)
-            self.true_label.setPos(out_true_socket.pos().x() - self.true_label.boundingRect().width() / 2,
-                                   self.height - 18)
-            self.true_label.setToolTip("Успіх (умова виконана)")
+            # Позиціонуємо під сокетом
+            label_rect = self.true_label.boundingRect()
+            label_x = out_true_socket.pos().x() - label_rect.width() / 2
+            label_y = self.height + 2  # Трохи нижче сокета
+            self.true_label.setPos(label_x, label_y)
+            self.true_label.setToolTip("Так (умова виконана)")
+            log.debug(f"    [{self.id}] 'True' label created at ({label_x:.1f}, {label_y:.1f})")  # ДІАГНОСТИКА
+            # --- КІНЕЦЬ ЗМІНИ ---
 
         out_false_socket = self.get_socket("out_false")
         if out_false_socket:
-            self.false_label = QGraphicsTextItem("✘", self) # Більш лаконічно
-            self.false_label.setDefaultTextColor(QColor("#ffaaaa"))
-            font = QFont("Arial", 10, QFont.Weight.Bold)
+            # --- ЗМІНА: Текст, шрифт, колір та позиція ---
+            log.debug(f"  [{self.id}] Creating 'False' label...")  # ДІАГНОСТИКА
+            self.false_label = QGraphicsTextItem("Ні", self)  # Використовуємо текст
+            self.false_label.setDefaultTextColor(QColor("#ffbaba"))  # Світліший червоний
+            font = QFont("Arial", 9, QFont.Weight.Bold)  # Більший шрифт
             self.false_label.setFont(font)
-            self.false_label.setPos(out_false_socket.pos().x() - self.false_label.boundingRect().width() / 2,
-                                    self.height - 18)
-            self.false_label.setToolTip("Невдача (умова не виконана)")
+            # Позиціонуємо під сокетом
+            label_rect = self.false_label.boundingRect()
+            label_x = out_false_socket.pos().x() - label_rect.width() / 2
+            label_y = self.height + 2  # Трохи нижче сокета
+            self.false_label.setPos(label_x, label_y)
+            self.false_label.setToolTip("Ні (умова не виконана)")
+            log.debug(f"    [{self.id}] 'False' label created at ({label_x:.1f}, {label_y:.1f})")  # ДІАГНОСТИКА
+            # --- КІНЕЦЬ ЗМІНИ ---
+
+    # --- ДОДАНО: Перевизначення boundingRect ---
+    def boundingRect(self):
+        # Отримуємо базовий прямокутник
+        base_rect = super().boundingRect()
+        # Додаємо відступ знизу для міток "Так"/"Ні"
+        # Мітки знаходяться на y = self.height + 2
+        # Шрифт 9 приблизно 12-14 пікселів заввишки
+        # Базовий rect закінчується на y = self.height + 10 (extra=10)
+        # Додаємо ще ~10-15 пікселів
+        padding_for_labels = 15
+        # base_rect.adjust(0, 0, 0, padding_for_labels) # Розширюємо вниз
+        return base_rect.adjusted(0, 0, 0, padding_for_labels)
+
+    # --- КІНЕЦЬ ДОДАНОГО ---
 
     def update_display_properties(self, config=None):
         props = dict(self.properties)
@@ -885,17 +925,19 @@ class ConditionNodeZoneState(BaseNode):
         if config and zone_id:
             all_zones = {}
             for device in config.get('devices', []):
-                 for zone in device.get('zones', []):
-                      all_zones[zone['id']] = {'name': zone['name'], 'parent_name': zone.get('parent_name', '')}
+                for zone in device.get('zones', []):
+                    all_zones[zone['id']] = {'name': zone['name'], 'parent_name': zone.get('parent_name', '')}
             zone_info = all_zones.get(zone_id)
-            if zone_info: zone_name = f"{zone_info.get('parent_name', '')}: {zone_info['name']}"
-            else: zone_name = "НЕ ЗНАЙДЕНО"
+            if zone_info:
+                zone_name = f"{zone_info.get('parent_name', '')}: {zone_info['name']}"
+            else:
+                zone_name = "НЕ ЗНАЙДЕНО"
 
         # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
         if hasattr(self, 'properties_text'):
-             self.properties_text.setPlainText(f"{zone_name}\nСтан: {state}")
+            self.properties_text.setPlainText(f"{zone_name}\nСтан: {state}")
         else:
-             log.warning(f"ConditionNodeZoneState {self.id} missing 'properties_text'.")
+            log.warning(f"ConditionNodeZoneState {self.id} missing 'properties_text'.")
         # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
     def validate(self, config):
@@ -918,10 +960,10 @@ class ConditionNodeZoneState(BaseNode):
 
         # Перевіряємо наявність сокетів перед доступом до connections
         if not out_true_socket or not out_true_socket.connections:
-            self.set_validation_state(False, "Вихід 'Успіх' повинен бути підключений.")
+            self.set_validation_state(False, "Вихід 'Так' повинен бути підключений.")  # Оновлено текст помилки
             return False
         if not out_false_socket or not out_false_socket.connections:
-            self.set_validation_state(False, "Вихід 'Невдача' повинен бути підключений.")
+            self.set_validation_state(False, "Вихід 'Ні' повинен бути підключений.")  # Оновлено текст помилки
             return False
 
         self.set_validation_state(True)
@@ -948,12 +990,14 @@ class RepeatNode(DecoratorNode):
     def __init__(self):
         super().__init__(name="Повтор", node_type="Декоратор", color=QColor("#8e44ad"), icon=self.ICON)
         if not any(p[0] == 'count' for p in self.properties):
-             self.properties.append(('count', 3))
+            self.properties.append(('count', 3))
 
     def _create_sockets(self):
         self.add_socket("in", position=QPointF(self.width / 2, 0), display_name="Вхід")
-        self.add_socket("out_loop", is_output=True, position=QPointF(self.width * 0.25, self.height), display_name="Виконати")
-        self.add_socket("out_end", is_output=True, position=QPointF(self.width * 0.75, self.height), display_name="Завершити")
+        self.add_socket("out_loop", is_output=True, position=QPointF(self.width * 0.25, self.height),
+                        display_name="Виконати")
+        self.add_socket("out_end", is_output=True, position=QPointF(self.width * 0.75, self.height),
+                        display_name="Завершити")
 
         # Labels for sockets
         out_loop_socket = self.get_socket("out_loop")
@@ -978,9 +1022,9 @@ class RepeatNode(DecoratorNode):
         text = f"Виконати {count} раз" if count > 0 else "Безкінечно (-1)" if count == -1 else "Не виконувати (0)"
         # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
         if hasattr(self, 'properties_text'):
-             self.properties_text.setPlainText(text)
+            self.properties_text.setPlainText(text)
         else:
-             log.warning(f"RepeatNode {self.id} missing 'properties_text'.")
+            log.warning(f"RepeatNode {self.id} missing 'properties_text'.")
         # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
     def validate(self, config):
@@ -1013,13 +1057,14 @@ class RepeatNode(DecoratorNode):
 # --- Нові класи для Макросів ---
 
 class MacroNode(BaseNode):
-    ICON = "🧩" # Значок для макроса
+    ICON = "🧩"  # Значок для макроса
 
     def __init__(self, macro_id=None, name="Макрос"):
         # Передаємо display name "Макрос" у super()
-        super().__init__(name=name, node_type="Макрос", color=QColor("#7f8c8d"), icon=self.ICON) # Сірий колір
-        self.macro_id = macro_id # ID визначення макроса в project_data['macros']
+        super().__init__(name=name, node_type="Макрос", color=QColor("#7f8c8d"), icon=self.ICON)  # Сірий колір
+        self.macro_id = macro_id  # ID визначення макроса в project_data['macros']
         # Початково сокетів немає, вони будуть додані update_sockets_from_definition
+        self._socket_labels = []  # <-- ДОДАНО: Список для зберігання текстових міток
 
     def _create_sockets(self):
         # Макровузол не має сокетів за замовчуванням
@@ -1029,7 +1074,8 @@ class MacroNode(BaseNode):
     def update_sockets_from_definition(self, macro_data):
         """Оновлює сокети вузла на основі визначення макросу."""
         # --- [ЗМІНА] Додано діагностичне логування ---
-        log.debug(f"Updating sockets for MacroNode {self.id} based on macro definition {macro_data.get('id')} ({macro_data.get('name')})")
+        log.debug(
+            f"Updating sockets for MacroNode {self.id} based on macro definition {macro_data.get('id')} ({macro_data.get('name')})")
         # --- [КІНЕЦЬ ЗМІНИ] ---
         # Зберігаємо інформацію про старі з'єднання
         old_connections_info = {}
@@ -1037,60 +1083,113 @@ class MacroNode(BaseNode):
             old_connections_info[socket_name] = [(conn.start_socket if conn.end_socket == socket else conn.end_socket,
                                                   conn.start_socket == socket) for conn in socket.connections]
 
-        self.clear_sockets() # Видаляємо старі сокети
+        self.clear_sockets()  # Видаляємо старі сокети
+
+        # --- ДОДАНО: Очищення старих міток ---
+        log.debug(f"  [{self.id}] Clearing old socket labels...")  # ДІАГНОСТИКА
+        for label in self._socket_labels:
+            if label.scene():
+                try:  # Додаємо try-except для надійності
+                    self.scene().removeItem(label)
+                    label.setParentItem(None)  # Явно видаляємо батька
+                except Exception as e:
+                    log.error(f"  [{self.id}] Error removing old socket label: {e}", exc_info=True)
+            # Видаляємо з батьківського елемента, навіть якщо сцени немає
+            elif label.parentItem() == self:
+                label.setParentItem(None)
+        self._socket_labels = []
+        log.debug(f"  [{self.id}] Old socket labels cleared.")  # ДІАГНОСТИКА
+        # --- КІНЕЦЬ ДОДАНОГО ---
 
         inputs = macro_data.get('inputs', [])
         outputs = macro_data.get('outputs', [])
-        log.debug(f"  Macro definition has {len(inputs)} inputs and {len(outputs)} outputs.") # Діагностика
+        log.debug(f"  Macro definition has {len(inputs)} inputs and {len(outputs)} outputs.")  # Діагностика
 
         # --- [ИСПРАВЛЕНИЕ 2] Изменяем расчет позиций сокетов на ВВЕРХ/НИЗ ---
         num_inputs = len(inputs)
         num_outputs = len(outputs)
-        socket_spacing = 25 # Уменьшаем расстояние, если нужно
-        min_width = 100 # Минимальная ширина, чтобы сокеты не слипались
+        socket_spacing = 25  # Уменьшаем расстояние, если нужно
+        min_width = 100  # Минимальная ширина, чтобы сокеты не слипались
         required_width = max(min_width, socket_spacing * max(num_inputs, num_outputs) + 10)
 
         # Перевіряємо, чи змінилася ширина
         if self.width != required_width:
-            log.debug(f"  Changing node width from {self.width} to {required_width}") # Діагностика
-            self.prepareGeometryChange() # Повідомляємо про зміну геометрії
+            log.debug(f"  Changing node width from {self.width} to {required_width}")  # Діагностика
+            self.prepareGeometryChange()  # Повідомляємо про зміну геометрії
             self.width = required_width
-            self.rect.setRect(0, 0, self.width, self.height) # Оновлюємо прямокутник
+            self.rect.setRect(0, 0, self.width, self.height)  # Оновлюємо прямокутник
             # Обновляем позицию и ширину текста
             if hasattr(self, 'name_text'): self.name_text.setTextWidth(self.width - 16)
             if hasattr(self, 'properties_text'): self.properties_text.setTextWidth(self.width - 16)
             # Оновлюємо позицію індикатора помилки, якщо він є
             if hasattr(self, 'error_icon'):
-                 self.error_icon.setPos(self.width - 24, 2)
-
+                self.error_icon.setPos(self.width - 24, 2)
 
         # Створюємо вхідні сокети зверху
         for i, input_def in enumerate(inputs):
-            socket_name = input_def['name'] # Використовуємо ім'я входу як ім'я сокету
+            socket_name = input_def['name']  # Використовуємо ім'я входу як ім'я сокету
             x_pos = (i + 1) * required_width / (num_inputs + 1) if num_inputs > 0 else required_width / 2
             self.add_socket(name=socket_name, is_output=False, position=QPointF(x_pos, 0), display_name=socket_name)
-            log.debug(f"  Added input socket: '{socket_name}' at x={x_pos:.1f}, y=0") # Діагностика
+            log.debug(f"  Added input socket: '{socket_name}' at x={x_pos:.1f}, y=0")  # Діагностика
+
+            # --- ДОДАНО: Створення мітки для входу ---
+            try:
+                label = QGraphicsTextItem(socket_name, self)
+                label.setDefaultTextColor(QColor("#f0f0f0"))
+                label.setFont(QFont("Arial", 8))
+                # Позиціонуємо мітку над вузлом
+                label_rect = label.boundingRect()
+                label_x = x_pos - label_rect.width() / 2
+                label_y = -label_rect.height() - 2  # Трохи вище сокета (який на y=0)
+                label.setPos(label_x, label_y)
+                self._socket_labels.append(label)
+                log.debug(
+                    f"    [{self.id}] Added input label '{socket_name}' at ({label_x:.1f}, {label_y:.1f})")  # ДІАГНОСТИКА
+            except Exception as e:
+                log.error(f"    [{self.id}] Failed to create input label for '{socket_name}': {e}",
+                          exc_info=True)  # ДІАГНОСТИКА
+            # --- КІНЕЦЬ ДОДАНОГО ---
 
         # Створюємо вихідні сокети знизу
         for i, output_def in enumerate(outputs):
             socket_name = output_def['name']
             x_pos = (i + 1) * required_width / (num_outputs + 1) if num_outputs > 0 else required_width / 2
-            self.add_socket(name=socket_name, is_output=True, position=QPointF(x_pos, self.height), display_name=socket_name)
-            log.debug(f"  Added output socket: '{socket_name}' at x={x_pos:.1f}, y={self.height}") # Діагностика
+            self.add_socket(name=socket_name, is_output=True, position=QPointF(x_pos, self.height),
+                            display_name=socket_name)
+            log.debug(f"  Added output socket: '{socket_name}' at x={x_pos:.1f}, y={self.height}")  # Діагностика
+
+            # --- ДОДАНО: Створення мітки для виходу ---
+            try:
+                label = QGraphicsTextItem(socket_name, self)
+                label.setDefaultTextColor(QColor("#f0f0f0"))
+                label.setFont(QFont("Arial", 8))
+                # Позиціонуємо мітку під вузлом
+                label_rect = label.boundingRect()
+                label_x = x_pos - label_rect.width() / 2
+                label_y = self.height + 2  # Трохи нижче сокета (який на y=self.height)
+                label.setPos(label_x, label_y)
+                self._socket_labels.append(label)
+                log.debug(
+                    f"    [{self.id}] Added output label '{socket_name}' at ({label_x:.1f}, {label_y:.1f})")  # ДІАГНОСТИКА
+            except Exception as e:
+                log.error(f"    [{self.id}] Failed to create output label for '{socket_name}': {e}",
+                          exc_info=True)  # ДІАГНОСТИКА
+            # --- КІНЕЦЬ ДОДАНОГО ---
         # --- [КОНЕЦ ИСПРАВЛЕНИЯ 2] ---
 
         # Відновлюємо з'єднання, якщо можливо
         # --- [ЗМІНА] Додано логування для відновлення з'єднань ---
         log.debug(f"Attempting to restore connections for MacroNode {self.id}")
-        if self.scene(): # Перевіряємо, чи вузол вже на сцені
+        if self.scene():  # Перевіряємо, чи вузол вже на сцені
             for socket_name, connections in old_connections_info.items():
                 new_socket = self.get_socket(socket_name)
                 if new_socket:
                     log.debug(f"  Restoring connections for socket '{socket_name}'")
                     for other_socket, was_start in connections:
-                        if other_socket and other_socket.scene() and other_socket.parentItem() and other_socket.parentItem().scene(): # Перевіряємо валідність іншого сокета/вузла
+                        if other_socket and other_socket.scene() and other_socket.parentItem() and other_socket.parentItem().scene():  # Перевіряємо валідність іншого сокета/вузла
                             try:
-                                log.debug(f"    Attempting connection to {other_socket.parentItem().id}:{other_socket.socket_name}")
+                                log.debug(
+                                    f"    Attempting connection to {other_socket.parentItem().id}:{other_socket.socket_name}")
                                 start_sock = new_socket if was_start else other_socket
                                 end_sock = other_socket if was_start else new_socket
                                 # Перевірка на вже існуюче з'єднання
@@ -1102,16 +1201,18 @@ class MacroNode(BaseNode):
                                 else:
                                     log.debug(f"      Connection already exists.")
                             except Exception as e:
-                                log.error(f"      Error restoring connection for socket '{socket_name}': {e}", exc_info=True)
+                                log.error(f"      Error restoring connection for socket '{socket_name}': {e}",
+                                          exc_info=True)
                         else:
-                             log.warning(f"    Skipping connection restore for socket '{socket_name}': other socket/node is invalid or not on scene.")
+                            log.warning(
+                                f"    Skipping connection restore for socket '{socket_name}': other socket/node is invalid or not on scene.")
                 else:
                     log.warning(f"  Cannot restore connections for old socket '{socket_name}': new socket not found.")
         else:
-             log.debug("  Skipping connection restoration: Node not yet added to scene.")
+            log.debug("  Skipping connection restoration: Node not yet added to scene.")
         # --- [КІНЕЦЬ ЗМІНИ] ---
 
-        self.update() # Оновлюємо вигляд
+        self.update()  # Оновлюємо вигляд
 
     def update_display_properties(self, config=None):
         # Показуємо ім'я макросу, до якого він прив'язаний
@@ -1121,89 +1222,110 @@ class MacroNode(BaseNode):
         view = self.scene().views()[0] if self.scene() and self.scene().views() else None
         # --- ВИПРАВЛЕННЯ: Додано перевірку parent() ---
         if view and hasattr(view, 'parent') and callable(view.parent):
-             parent_widget = view.parent()
-             # Перевіряємо, чи батьківський віджет має атрибут project_manager (замість project_data)
-             if hasattr(parent_widget, 'project_manager'):
-                  main_window = parent_widget
+            parent_widget = view.parent()
+            # Перевіряємо, чи батьківський віджет має атрибут project_manager (замість project_data)
+            if hasattr(parent_widget, 'project_manager'):
+                main_window = parent_widget
         # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
 
         # --- ВИПРАВЛЕННЯ: Використовуємо project_manager ---
-        if self.macro_id and main_window: # main_window вже перевірено
-              macro_def = main_window.project_manager.get_macro_data(self.macro_id)
-              # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
-              if macro_def:
-                   macro_name = macro_def.get('name', 'Без імені')
-              else: # Додано логування, якщо визначення не знайдено
-                   log.warning(f"Macro definition not found for macro_id '{self.macro_id}' in MacroNode {self.id}")
-                   macro_name = "Визначення відсутнє!"
-        elif not self.macro_id: # Додано логування, якщо macro_id відсутній
-             log.warning(f"macro_id is not set for MacroNode {self.id}")
+        if self.macro_id and main_window:  # main_window вже перевірено
+            macro_def = main_window.project_manager.get_macro_data(self.macro_id)
+            # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
+            if macro_def:
+                macro_name = macro_def.get('name', 'Без імені')
+            else:  # Додано логування, якщо визначення не знайдено
+                log.warning(f"Macro definition not found for macro_id '{self.macro_id}' in MacroNode {self.id}")
+                macro_name = "Визначення відсутнє!"
+        elif not self.macro_id:  # Додано логування, якщо macro_id відсутній
+            log.warning(f"macro_id is not set for MacroNode {self.id}")
 
         # --- [ИСПРАВЛЕНИЕ 1] Добавляем проверку наличия properties_text ---
         if hasattr(self, 'properties_text'):
-             self.properties_text.setPlainText(f"Макрос: {macro_name}\nID: {self.macro_id or '?'}")
+            self.properties_text.setPlainText(f"Макрос: {macro_name}\nID: {self.macro_id or '?'}")
         else:
-             log.warning(f"MacroNode {self.id} missing 'properties_text'.")
+            log.warning(f"MacroNode {self.id} missing 'properties_text'.")
         # --- [КОНЕЦ ИСПРАВЛЕНИЯ] ---
 
-
     def validate(self, config):
-         main_window = None
-         # --- [ЗМІНА] Безпечніший спосіб отримати main_window ---
-         view = self.scene().views()[0] if self.scene() and self.scene().views() else None
-         # --- ВИПРАВЛЕННЯ: Додано перевірку parent() ---
-         if view and hasattr(view, 'parent') and callable(view.parent):
-              parent_widget = view.parent()
-              # --- ВИПРАВЛЕННЯ: Перевіряємо project_manager ---
-              if hasattr(parent_widget, 'project_manager'):
-                   main_window = parent_widget
-         # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
+        main_window = None
+        # --- [ЗМІНА] Безпечніший спосіб отримати main_window ---
+        view = self.scene().views()[0] if self.scene() and self.scene().views() else None
+        # --- ВИПРАВЛЕННЯ: Додано перевірку parent() ---
+        if view and hasattr(view, 'parent') and callable(view.parent):
+            parent_widget = view.parent()
+            # --- ВИПРАВЛЕННЯ: Перевіряємо project_manager ---
+            if hasattr(parent_widget, 'project_manager'):
+                main_window = parent_widget
+        # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
 
-         if not self.macro_id:
-              self.set_validation_state(False, "Макровузол не прив'язаний до визначення макросу (відсутній macro_id).")
-              return False
-         # --- ВИПРАВЛЕННЯ: Використовуємо project_manager ---
-         elif not main_window or not main_window.project_manager.get_macro_data(self.macro_id): # Перевірка main_window додана
-              # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
-              self.set_validation_state(False, f"Визначення макросу з ID '{self.macro_id}' не знайдено в проекті.")
-              return False
-         else:
-              # --- ВИПРАВЛЕННЯ: Використовуємо project_manager ---
-              macro_data = main_window.project_manager.get_macro_data(self.macro_id)
-              # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
-              defined_input_names = {inp['name'] for inp in macro_data.get('inputs', [])}
-              defined_output_names = {out['name'] for out in macro_data.get('outputs', [])}
-              current_input_names = {sock.socket_name for sock in self.get_input_sockets()}
-              current_output_names = {sock.socket_name for sock in self.get_output_sockets()}
+        if not self.macro_id:
+            self.set_validation_state(False, "Макровузол не прив'язаний до визначення макросу (відсутній macro_id).")
+            return False
+        # --- ВИПРАВЛЕННЯ: Використовуємо project_manager ---
+        elif not main_window or not main_window.project_manager.get_macro_data(
+                self.macro_id):  # Перевірка main_window додана
+            # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
+            self.set_validation_state(False, f"Визначення макросу з ID '{self.macro_id}' не знайдено в проекті.")
+            return False
+        else:
+            # --- ВИПРАВЛЕННЯ: Використовуємо project_manager ---
+            macro_data = main_window.project_manager.get_macro_data(self.macro_id)
+            # --- КІНЕЦЬ ВИПРАВЛЕННЯ ---
+            defined_input_names = {inp['name'] for inp in macro_data.get('inputs', [])}
+            defined_output_names = {out['name'] for out in macro_data.get('outputs', [])}
+            current_input_names = {sock.socket_name for sock in self.get_input_sockets()}
+            current_output_names = {sock.socket_name for sock in self.get_output_sockets()}
 
-              if defined_input_names != current_input_names or defined_output_names != current_output_names:
-                   log.warning(f"Sockets on MacroNode {self.id} do not match definition {self.macro_id}. Attempting update.")
-                   try:
-                       self.update_sockets_from_definition(macro_data)
-                       # Повторно отримуємо імена сокетів ПІСЛЯ оновлення
-                       current_input_names = {sock.socket_name for sock in self.get_input_sockets()}
-                       current_output_names = {sock.socket_name for sock in self.get_output_sockets()}
-                       if defined_input_names != current_input_names or defined_output_names != current_output_names:
-                           # Якщо і після оновлення не збігаються - помилка
-                           log.error(f"Failed to match sockets after update for MacroNode {self.id}. Defined: IN{defined_input_names}/OUT{defined_output_names}, Current: IN{current_input_names}/OUT{current_output_names}")
-                           self.set_validation_state(False, "Невідповідність сокетів визначенню макросу (після спроби оновлення).")
-                           return False
-                       else:
-                            log.info(f"Successfully updated sockets for MacroNode {self.id} to match definition.")
-                            self.set_validation_state(True) # Стан валідний після оновлення
-                            return True # Повертаємо True після успішного оновлення
-                   except Exception as e:
-                        log.error(f"Error auto-updating sockets for MacroNode {self.id}: {e}", exc_info=True)
-                        self.set_validation_state(False, "Помилка оновлення сокетів за визначенням макросу.")
+            if defined_input_names != current_input_names or defined_output_names != current_output_names:
+                log.warning(
+                    f"Sockets on MacroNode {self.id} do not match definition {self.macro_id}. Attempting update.")
+                try:
+                    self.update_sockets_from_definition(macro_data)
+                    # Повторно отримуємо імена сокетів ПІСЛЯ оновлення
+                    current_input_names = {sock.socket_name for sock in self.get_input_sockets()}
+                    current_output_names = {sock.socket_name for sock in self.get_output_sockets()}
+                    if defined_input_names != current_input_names or defined_output_names != current_output_names:
+                        # Якщо і після оновлення не збігаються - помилка
+                        log.error(
+                            f"Failed to match sockets after update for MacroNode {self.id}. Defined: IN{defined_input_names}/OUT{defined_output_names}, Current: IN{current_input_names}/OUT{current_output_names}")
+                        self.set_validation_state(False,
+                                                  "Невідповідність сокетів визначенню макросу (після спроби оновлення).")
                         return False
+                    else:
+                        log.info(f"Successfully updated sockets for MacroNode {self.id} to match definition.")
+                        self.set_validation_state(True)  # Стан валідний після оновлення
+                        return True  # Повертаємо True після успішного оновлення
+                except Exception as e:
+                    log.error(f"Error auto-updating sockets for MacroNode {self.id}: {e}", exc_info=True)
+                    self.set_validation_state(False, "Помилка оновлення сокетів за визначенням макросу.")
+                    return False
 
-              # Якщо сокети збігалися одразу
-              self.set_validation_state(True)
-              return True
+            # Якщо сокети збігалися одразу
+            self.set_validation_state(True)
+            return True
+
+    # --- ДОДАНО: Перевизначення boundingRect ---
+    def boundingRect(self):
+        # Отримуємо базовий прямокутник
+        base_rect = super().boundingRect()
+
+        # --- ДОДАНО: Розширення boundingRect для міток ---
+        # Мітки вгорі знаходяться приблизно на y = -15 (шрифт 8 + відступ)
+        # Базовий rect починається з y = -10 (extra=10)
+        # Нам потрібно розширити його вгору ще на ~15-20 пікселів
+        top_padding_for_labels = 20  # Додатковий відступ зверху
+        bottom_padding_for_labels = 10  # Додатковий відступ знизу
+
+        # base_rect.adjusted(0, -top_padding_for_labels, 0, 0)
+        # Це розширить верхню межу з -10 до -30, що повинно бути достатньо
+        return base_rect.adjusted(0, -top_padding_for_labels, 0, bottom_padding_for_labels)
+        # --- КІНЕЦЬ ДОДАНОГО ---
+    # --- КІНЕЦЬ ДОДАНОГО ---
 
 
 class MacroInputNode(BaseNode):
-    ICON = "▶️" # Значок входу
+    ICON = "▶️"  # Значок входу
 
     def __init__(self, name="Вхід"):
         log.debug(f"Initializing MacroInputNode with name: {name}")
@@ -1212,8 +1334,8 @@ class MacroInputNode(BaseNode):
         # --- [ЗМІНА] Викликаємо _create_elements ПІСЛЯ зміни висоти ---
         self._create_elements()
         # --- [ЗМІНА] Пересоздаем сокеты после изменения высоты ---
-        self.clear_sockets() # Удаляем сокеты, созданные BaseNode с неправильной высотой
-        self._create_sockets() # Создаем сокеты заново с правильной высотой
+        self.clear_sockets()  # Удаляем сокеты, созданные BaseNode с неправильной высотой
+        self._create_sockets()  # Создаем сокеты заново с правильной высотой
 
     def _create_sockets(self):
         # Этот метод вызывается из __init__ (и из super().__init__),
@@ -1225,30 +1347,31 @@ class MacroInputNode(BaseNode):
         # Спрощений вигляд
         # Перевіряємо, чи елементи вже існують (може викликатись з __init__ базового класу)
         if hasattr(self, 'rect'):
-             self.rect.setRect(0, 0, self.width, self.height)
-             self.rect.setBrush(self.node_color)
+            self.rect.setRect(0, 0, self.width, self.height)
+            self.rect.setBrush(self.node_color)
         else:
-             self.rect = QGraphicsRectItem(0, 0, self.width, self.height, self)
-             self.rect.setBrush(self.node_color);
-             self.rect.setPen(QPen(Qt.GlobalColor.black, 1))
+            self.rect = QGraphicsRectItem(0, 0, self.width, self.height, self)
+            self.rect.setBrush(self.node_color);
+            self.rect.setPen(QPen(Qt.GlobalColor.black, 1))
 
         if hasattr(self, 'icon_text'):
-             self.icon_text.setPlainText(self.node_icon)
+            self.icon_text.setPlainText(self.node_icon)
         else:
-             self.icon_text = QGraphicsTextItem(self.node_icon, self)
-             self.icon_text.setDefaultTextColor(Qt.GlobalColor.white);
-             self.icon_text.setFont(QFont("Arial", 16))
+            self.icon_text = QGraphicsTextItem(self.node_icon, self)
+            self.icon_text.setDefaultTextColor(Qt.GlobalColor.white);
+            self.icon_text.setFont(QFont("Arial", 16))
 
         # Центрування іконки
         icon_rect = self.icon_text.boundingRect()
-        self.icon_text.setPos((self.width - icon_rect.width()) / 2, (self.height - icon_rect.height()) / 2 - 10) # Трохи вище
+        self.icon_text.setPos((self.width - icon_rect.width()) / 2,
+                              (self.height - icon_rect.height()) / 2 - 10)  # Трохи вище
 
         if hasattr(self, 'name_text'):
-             self.name_text.setPlainText(self.node_name)
+            self.name_text.setPlainText(self.node_name)
         else:
-             self.name_text = QGraphicsTextItem(self.node_name, self)
-             self.name_text.setDefaultTextColor(QColor("#f0f0f0"));
-             self.name_text.setFont(QFont("Arial", 9, QFont.Weight.Bold));
+            self.name_text = QGraphicsTextItem(self.node_name, self)
+            self.name_text.setDefaultTextColor(QColor("#f0f0f0"));
+            self.name_text.setFont(QFont("Arial", 9, QFont.Weight.Bold));
 
         # Центрування назви під іконкою
         name_rect = self.name_text.boundingRect()
@@ -1256,11 +1379,11 @@ class MacroInputNode(BaseNode):
 
         # Видаляємо непотрібні елементи, якщо вони були створені базовим класом
         if hasattr(self, 'type_text'):
-             if self.type_text.scene(): self.type_text.scene().removeItem(self.type_text)
-             del self.type_text
+            if self.type_text.scene(): self.type_text.scene().removeItem(self.type_text)
+            del self.type_text
         if hasattr(self, 'properties_text'):
-             if self.properties_text.scene(): self.properties_text.scene().removeItem(self.properties_text)
-             del self.properties_text
+            if self.properties_text.scene(): self.properties_text.scene().removeItem(self.properties_text)
+            del self.properties_text
 
     # --- [ИСПРАВЛЕНИЕ 1] Переопределяем метод, чтобы избежать ошибки ---
     def update_display_properties(self, config=None):
@@ -1272,11 +1395,11 @@ class MacroInputNode(BaseNode):
 
 
 class MacroOutputNode(BaseNode):
-    ICON = "⏹️" # Значок виходу
+    ICON = "⏹️"  # Значок виходу
 
     def __init__(self, name="Вихід"):
         log.debug(f"Initializing MacroOutputNode with name: {name}")
-        super().__init__(name=name, node_type="Вихід Макроса", color=QColor("#e67e22"), icon=self.ICON) # Помаранчевий
+        super().__init__(name=name, node_type="Вихід Макроса", color=QColor("#e67e22"), icon=self.ICON)  # Помаранчевий
         self.height = 50
         # --- [ЗМІНА] Викликаємо _create_elements ПІСЛЯ зміни висоти ---
         self._create_elements()
@@ -1293,38 +1416,39 @@ class MacroOutputNode(BaseNode):
     def _create_elements(self):
         # Спрощений вигляд, аналогічний входу
         if hasattr(self, 'rect'):
-             self.rect.setRect(0, 0, self.width, self.height)
-             self.rect.setBrush(self.node_color)
+            self.rect.setRect(0, 0, self.width, self.height)
+            self.rect.setBrush(self.node_color)
         else:
-             self.rect = QGraphicsRectItem(0, 0, self.width, self.height, self)
-             self.rect.setBrush(self.node_color);
-             self.rect.setPen(QPen(Qt.GlobalColor.black, 1))
+            self.rect = QGraphicsRectItem(0, 0, self.width, self.height, self)
+            self.rect.setBrush(self.node_color);
+            self.rect.setPen(QPen(Qt.GlobalColor.black, 1))
 
         if hasattr(self, 'icon_text'):
-             self.icon_text.setPlainText(self.node_icon)
+            self.icon_text.setPlainText(self.node_icon)
         else:
-             self.icon_text = QGraphicsTextItem(self.node_icon, self)
-             self.icon_text.setDefaultTextColor(Qt.GlobalColor.white);
-             self.icon_text.setFont(QFont("Arial", 16))
+            self.icon_text = QGraphicsTextItem(self.node_icon, self)
+            self.icon_text.setDefaultTextColor(Qt.GlobalColor.white);
+            self.icon_text.setFont(QFont("Arial", 16))
         icon_rect = self.icon_text.boundingRect()
-        self.icon_text.setPos((self.width - icon_rect.width()) / 2, (self.height - icon_rect.height()) / 2 - 10) # Трохи вище
+        self.icon_text.setPos((self.width - icon_rect.width()) / 2,
+                              (self.height - icon_rect.height()) / 2 - 10)  # Трохи вище
 
         if hasattr(self, 'name_text'):
-             self.name_text.setPlainText(self.node_name)
+            self.name_text.setPlainText(self.node_name)
         else:
-             self.name_text = QGraphicsTextItem(self.node_name, self)
-             self.name_text.setDefaultTextColor(QColor("#f0f0f0"));
-             self.name_text.setFont(QFont("Arial", 9, QFont.Weight.Bold));
+            self.name_text = QGraphicsTextItem(self.node_name, self)
+            self.name_text.setDefaultTextColor(QColor("#f0f0f0"));
+            self.name_text.setFont(QFont("Arial", 9, QFont.Weight.Bold));
         name_rect = self.name_text.boundingRect()
         self.name_text.setPos((self.width - name_rect.width()) / 2, self.height - name_rect.height() - 5)
 
         # Видаляємо непотрібні елементи
         if hasattr(self, 'type_text'):
-             if self.type_text.scene(): self.type_text.scene().removeItem(self.type_text)
-             del self.type_text
+            if self.type_text.scene(): self.type_text.scene().removeItem(self.type_text)
+            del self.type_text
         if hasattr(self, 'properties_text'):
-             if self.properties_text.scene(): self.properties_text.scene().removeItem(self.properties_text)
-             del self.properties_text
+            if self.properties_text.scene(): self.properties_text.scene().removeItem(self.properties_text)
+            del self.properties_text
 
     # --- [ИСПРАВЛЕНИЕ 1] Переопределяем метод, чтобы избежать ошибки ---
     def update_display_properties(self, config=None):
@@ -1363,7 +1487,6 @@ class EditableTextItem(QGraphicsTextItem):
         # Дозволяємо перенесення слів
         self.document().setDefaultTextOption(QTextOption(Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap))
 
-
     def mouseDoubleClickEvent(self, event):
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         self.setFocus(Qt.FocusReason.MouseFocusReason)
@@ -1380,36 +1503,36 @@ class EditableTextItem(QGraphicsTextItem):
         # Якщо це текст коментаря чи фрейму, можливо, оновити дані батька?
         parent = self.parentItem()
         if isinstance(parent, (CommentItem, FrameItem)):
-             # Оновлюємо внутрішній текст батька, щоб він зберігся
-             parent._text = self.toPlainText()
+            # Оновлюємо внутрішній текст батька, щоб він зберігся
+            parent._text = self.toPlainText()
         super().focusOutEvent(event)
 
     # Додаємо обробник зміни тексту, щоб оновлювати дані батька в реальному часі
     def keyPressEvent(self, event):
-         super().keyPressEvent(event)
-         parent = self.parentItem()
-         if isinstance(parent, (CommentItem, FrameItem)):
-              parent._text = self.toPlainText() # Оновлюємо дані при зміні
+        super().keyPressEvent(event)
+        parent = self.parentItem()
+        if isinstance(parent, (CommentItem, FrameItem)):
+            parent._text = self.toPlainText()  # Оновлюємо дані при зміні
 
 
 class CommentItem(QGraphicsItem):
     def __init__(self, text="Коментар", width=200, height=100, view=None):
         super().__init__()
-        self.id = generate_short_id() # Используем короткий ID
-        self._width, self._height, self.view = max(60, width), max(40, height), view # Min size
-        self._text = text if text is not None else "" # Ensure string
+        self.id = generate_short_id()  # Используем короткий ID
+        self._width, self._height, self.view = max(60, width), max(40, height), view  # Min size
+        self._text = text if text is not None else ""  # Ensure string
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsMovable |
                       QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
                       QGraphicsItem.GraphicsItemFlag.ItemSendsScenePositionChanges)
-        self.setZValue(-1) # Коментарі під вузлами, але над фреймами
+        self.setZValue(-1)  # Коментарі під вузлами, але над фреймами
         self.rect = QGraphicsRectItem(0, 0, self._width, self._height, self)
-        self.rect.setBrush(QColor(255, 250, 170, 200)) # Жовтуватий напівпрозорий
+        self.rect.setBrush(QColor(255, 250, 170, 200))  # Жовтуватий напівпрозорий
         self.rect.setPen(QPen(QColor("#333333"), 1, Qt.PenStyle.DashLine))
 
         self.text_item = EditableTextItem(self._text, self)
         self.text_item.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.text_item.setPos(5, 5);
-        self.text_item.setTextWidth(self._width - 10) # Задаємо ширину для переносу
+        self.text_item.setTextWidth(self._width - 10)  # Задаємо ширину для переносу
 
         handle_size = 10
         self.resize_handle = QGraphicsRectItem(0, 0, handle_size, handle_size, self)
@@ -1441,24 +1564,23 @@ class CommentItem(QGraphicsItem):
         margin = 2 + handle_size / 2
         return QRectF(0, 0, self._width, self._height).adjusted(-margin, -margin, margin, margin)
 
-
     def paint(self, painter, option, widget):
-        pass # Елементи малюють себе самі
+        pass  # Елементи малюють себе самі
 
     def set_dimensions(self, width, height):
         # Встановлюємо мінімальні розміри
         new_width = max(60, width)
         new_height = max(40, height)
         if new_width == self._width and new_height == self._height:
-             return # Розміри не змінились
+            return  # Розміри не змінились
 
         self.prepareGeometryChange()
         self._width, self._height = new_width, new_height
         self.rect.setRect(0, 0, self._width, self._height)
-        self.text_item.setTextWidth(self._width - 10) # Оновлюємо ширину тексту
+        self.text_item.setTextWidth(self._width - 10)  # Оновлюємо ширину тексту
         handle_size = self.resize_handle.rect().width()
         self.resize_handle.setPos(self._width - handle_size, self._height - handle_size)
-        self.update() # Оновлюємо вигляд
+        self.update()  # Оновлюємо вигляд
 
     def mousePressEvent(self, event):
         # Перевіряємо, чи клік був на ручці зміни розміру
@@ -1466,9 +1588,9 @@ class CommentItem(QGraphicsItem):
             self.is_resizing = True
             self.start_resize_dims = (self._width, self._height)
             self.start_mouse_pos = event.scenePos()
-            event.accept() # Поглинаємо подію, щоб не почалося перетягування
+            event.accept()  # Поглинаємо подію, щоб не почалося перетягування
         else:
-            super().mousePressEvent(event) # Стандартна обробка (перетягування)
+            super().mousePressEvent(event)  # Стандартна обробка (перетягування)
 
     def mouseMoveEvent(self, event):
         if self.is_resizing:
@@ -1498,13 +1620,13 @@ class CommentItem(QGraphicsItem):
                              else QPen(QColor("#333333"), 1, Qt.PenStyle.DashLine))
             # Показуємо ручку зміни розміру тільки коли вибрано
             self.resize_handle.setVisible(is_selected)
-            self.setZValue(0 if is_selected else -1) # Вибрані коментарі вище не вибраних
+            self.setZValue(0 if is_selected else -1)  # Вибрані коментарі вище не вибраних
         return super().itemChange(change, value)
 
     def to_data(self):
         return {
             'id': self.id,
-            'text': self.text, # Use the property to get current text
+            'text': self.text,  # Use the property to get current text
             'pos': (self.pos().x(), self.pos().y()),
             'size': (self._width, self._height)
         }
@@ -1515,7 +1637,7 @@ class CommentItem(QGraphicsItem):
     @staticmethod
     def data_from_xml(xml_element):
         return {'id': xml_element.get("id"),
-                'text': xml_element.text or "", # Get text content
+                'text': xml_element.text or "",  # Get text content
                 'pos': (float(xml_element.get("x")), float(xml_element.get("y"))),
                 'size': (float(xml_element.get("width")), float(xml_element.get("height")))}
 
@@ -1538,34 +1660,34 @@ class CommentItem(QGraphicsItem):
         width = float(data.get('size', [200, 100])[0])
         height = float(data.get('size', [200, 100])[1])
         comment = cls(data.get('text', ''), width, height, view)
-        comment.id = data.get('id', generate_short_id()) # Используем короткий ID
-        comment.setPos(QPointF(*data.get('pos', (0,0))))
-        comment.resize_handle.setVisible(False) # Сховати ручку спочатку
+        comment.id = data.get('id', generate_short_id())  # Используем короткий ID
+        comment.setPos(QPointF(*data.get('pos', (0, 0))))
+        comment.resize_handle.setVisible(False)  # Сховати ручку спочатку
         return comment
 
 
 class FrameItem(QGraphicsItem):
     def __init__(self, text="Новая группа", width=300, height=200, view=None):
         super().__init__()
-        self.id = generate_short_id() # Используем короткий ID
+        self.id = generate_short_id()  # Используем короткий ID
         self.header_height = 30
         min_width = 100
         min_height = 60 + self.header_height
         self._width = max(min_width, width)
         self._height = max(min_height, height)
         self.view = view
-        self._text = text if text is not None else "" # Ensure string
+        self._text = text if text is not None else ""  # Ensure string
 
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsMovable |
                       QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
                       QGraphicsItem.GraphicsItemFlag.ItemSendsScenePositionChanges)
-        self.setZValue(-2) # Фрейми найнижче
+        self.setZValue(-2)  # Фрейми найнижче
         self.rect = QGraphicsRectItem(0, 0, self._width, self._height, self)
-        self.rect.setBrush(QColor(80, 80, 80, 180)) # Темно-сірий напівпрозорий
-        self.rect.setPen(QPen(QColor(118, 185, 237), 1, Qt.PenStyle.DashLine)) # Світло-синя рамка
+        self.rect.setBrush(QColor(80, 80, 80, 180))  # Темно-сірий напівпрозорий
+        self.rect.setPen(QPen(QColor(118, 185, 237), 1, Qt.PenStyle.DashLine))  # Світло-синя рамка
 
         self.header = QGraphicsRectItem(0, 0, self._width, self.header_height, self)
-        self.header.setBrush(QColor(118, 185, 237, 220)) # Непрозорий заголовок
+        self.header.setBrush(QColor(118, 185, 237, 220))  # Непрозорий заголовок
         self.header.setPen(QPen(Qt.PenStyle.NoPen))
 
         self.text_item = EditableTextItem(self._text, self)
@@ -1573,7 +1695,8 @@ class FrameItem(QGraphicsItem):
         font = QFont("Arial", 10, QFont.Weight.Bold)
         self.text_item.setFont(font)
         self.text_item.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-        self.text_item.setPos(5, (self.header_height - self.text_item.boundingRect().height()) / 2) # Центруємо вертикально в заголовку
+        self.text_item.setPos(5, (
+                    self.header_height - self.text_item.boundingRect().height()) / 2)  # Центруємо вертикально в заголовку
         self.text_item.setTextWidth(self._width - 10)
 
         handle_size = 10
@@ -1581,14 +1704,13 @@ class FrameItem(QGraphicsItem):
         self.resize_handle.setBrush(QColor("#aaaaaa"))
         self.resize_handle.setPen(QPen(Qt.GlobalColor.black, 1))
         self.resize_handle.setPos(self._width - handle_size, self._height - handle_size)
-        self.resize_handle.setZValue(1) # Ручка над основним прямокутником
-        self.resize_handle.setVisible(False) # Сховати спочатку
+        self.resize_handle.setZValue(1)  # Ручка над основним прямокутником
+        self.resize_handle.setVisible(False)  # Сховати спочатку
 
         self.is_resizing = False
         self.start_resize_dims = None
         self.start_mouse_pos = None
-        self._contained_start_positions = {} # Store positions for moving contained items
-
+        self._contained_start_positions = {}  # Store positions for moving contained items
 
     @property
     def text(self):
@@ -1608,15 +1730,15 @@ class FrameItem(QGraphicsItem):
         if not self.scene(): return contained
         frame_rect = self.sceneBoundingRect()
         # Шукаємо тільки BaseNode та CommentItem
-        items_to_check = [item for item in self.scene().items(frame_rect) if isinstance(item, (BaseNode, CommentItem)) and item is not self]
+        items_to_check = [item for item in self.scene().items(frame_rect) if
+                          isinstance(item, (BaseNode, CommentItem)) and item is not self]
 
         for item in items_to_check:
-             item_center = item.sceneBoundingRect().center()
-             # Перевіряємо чи центр елемента всередині фрейму (не включаючи межі)
-             if frame_rect.contains(item_center):
-                  contained.append(item)
+            item_center = item.sceneBoundingRect().center()
+            # Перевіряємо чи центр елемента всередині фрейму (не включаючи межі)
+            if frame_rect.contains(item_center):
+                contained.append(item)
         return contained
-
 
     def boundingRect(self):
         # Додаємо запас для ручки зміни розміру та рамки виділення
@@ -1624,21 +1746,19 @@ class FrameItem(QGraphicsItem):
         margin = 2 + handle_size / 2
         return QRectF(0, 0, self._width, self._height).adjusted(-margin, -margin, margin, margin)
 
-
     def paint(self, painter, option, widget):
-        pass # Елементи малюють себе самі
-
+        pass  # Елементи малюють себе самі
 
     def set_dimensions(self, width, height):
         # Встановлюємо мінімальні розміри
         min_width = 100
-        min_height = self.header_height + 30 # Заголовок + трохи місця
+        min_height = self.header_height + 30  # Заголовок + трохи місця
         new_width = max(min_width, width)
         new_height = max(min_height, height)
         if new_width == self._width and new_height == self._height:
             return
 
-        self.prepareGeometryChange() # Важливо викликати ДО зміни розмірів
+        self.prepareGeometryChange()  # Важливо викликати ДО зміни розмірів
         self._width, self._height = new_width, new_height
         self.rect.setRect(0, 0, self._width, self._height)
         self.header.setRect(0, 0, self._width, self.header_height)
@@ -1647,8 +1767,7 @@ class FrameItem(QGraphicsItem):
         self.text_item.setPos(5, (self.header_height - self.text_item.boundingRect().height()) / 2)
         handle_size = self.resize_handle.rect().width()
         self.resize_handle.setPos(self._width - handle_size, self._height - handle_size)
-        self.update() # Оновлюємо вигляд
-
+        self.update()  # Оновлюємо вигляд
 
     def mousePressEvent(self, event):
         # Перевіряємо ручку зміни розміру за її геометрією відносно фрейму
@@ -1665,33 +1784,31 @@ class FrameItem(QGraphicsItem):
         else:
             # Зберігаємо позиції ДО виклику super(), бо він може змінити self.pos()
             self._contained_start_positions = {node: node.pos() for node in self.get_contained_nodes()}
-            super().mousePressEvent(event) # Дозволяємо стандартне перетягування
-
+            super().mousePressEvent(event)  # Дозволяємо стандартне перетягування
 
     def mouseMoveEvent(self, event):
         if self.is_resizing:
-            if self.start_mouse_pos: # Перевірка, що ініціалізація відбулася
-                 delta = event.scenePos() - self.start_mouse_pos
-                 self.set_dimensions(self.start_resize_dims[0] + delta.x(), self.start_resize_dims[1] + delta.y())
-                 event.accept()
+            if self.start_mouse_pos:  # Перевірка, що ініціалізація відбулася
+                delta = event.scenePos() - self.start_mouse_pos
+                self.set_dimensions(self.start_resize_dims[0] + delta.x(), self.start_resize_dims[1] + delta.y())
+                event.accept()
             else:
-                 log.warning("Frame resize move event before press initialized properly.")
+                log.warning("Frame resize move event before press initialized properly.")
         else:
             # Обробка переміщення внутрішніх елементів
-            old_pos = self.pos() # Позиція до переміщення базовим класом
-            super().mouseMoveEvent(event) # Базовий клас переміщує сам фрейм
-            new_pos = self.pos() # Нова позиція
+            old_pos = self.pos()  # Позиція до переміщення базовим класом
+            super().mouseMoveEvent(event)  # Базовий клас переміщує сам фрейм
+            new_pos = self.pos()  # Нова позиція
             delta = new_pos - old_pos
 
-            if delta.manhattanLength() > 0.1: # Якщо було реальне переміщення
-                 selected_items = self.scene().selectedItems() if self.scene() else []
-                 # Переміщуємо тільки ті внутрішні елементи, які НЕ вибрані разом з фреймом
-                 for node, start_pos in self._contained_start_positions.items():
-                     if node not in selected_items and node.scene() == self.scene(): # Перевіряємо, чи вузол ще на сцені
-                          # Перевіряємо, чи вузол все ще візуально всередині (опціонально, може бути складним)
-                          # if self.sceneBoundingRect().contains(node.sceneBoundingRect().center()):
-                          node.setPos(node.pos() + delta) # Просто додаємо зміщення
-
+            if delta.manhattanLength() > 0.1:  # Якщо було реальне переміщення
+                selected_items = self.scene().selectedItems() if self.scene() else []
+                # Переміщуємо тільки ті внутрішні елементи, які НЕ вибрані разом з фреймом
+                for node, start_pos in self._contained_start_positions.items():
+                    if node not in selected_items and node.scene() == self.scene():  # Перевіряємо, чи вузол ще на сцені
+                        # Перевіряємо, чи вузол все ще візуально всередині (опціонально, може бути складним)
+                        # if self.sceneBoundingRect().contains(node.sceneBoundingRect().center()):
+                        node.setPos(node.pos() + delta)  # Просто додаємо зміщення
 
     def mouseReleaseEvent(self, event):
         if self.is_resizing:
@@ -1709,8 +1826,7 @@ class FrameItem(QGraphicsItem):
             # Це потрібно робити в EditorView.mouseReleaseEvent, бо тільки там є повна картина
             # Очищуємо збережені позиції тут
             self._contained_start_positions = {}
-            super().mouseReleaseEvent(event) # Дозволяємо стандартну обробку
-
+            super().mouseReleaseEvent(event)  # Дозволяємо стандартну обробку
 
     def mouseDoubleClickEvent(self, event):
         # Дозволяємо редагування тільки при подвійному кліку на заголовку
@@ -1725,7 +1841,6 @@ class FrameItem(QGraphicsItem):
             # super().mouseDoubleClickEvent(event)
             pass
 
-
     def itemChange(self, change, value):
         # Handle selection highlight
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedChange:
@@ -1738,17 +1853,15 @@ class FrameItem(QGraphicsItem):
             # Піднімаємо вибраний фрейм трохи вище не вибраних, але все ще низько
             self.setZValue(-1 if is_selected else -2)
 
-
         # Переміщення внутрішніх елементів обробляється в mouseMoveEvent
         # Тут не потрібно відстежувати ItemPositionChange/ItemPositionHasChanged
 
         return super().itemChange(change, value)
 
-
     def to_data(self):
         return {
             'id': self.id,
-            'text': self.text, # Use property
+            'text': self.text,  # Use property
             'pos': (self.pos().x(), self.pos().y()),
             'size': (self._width, self._height)
         }
@@ -1759,7 +1872,7 @@ class FrameItem(QGraphicsItem):
     @staticmethod
     def data_from_xml(xml_element):
         return {'id': xml_element.get("id"),
-                'text': xml_element.text or "", # Get text content
+                'text': xml_element.text or "",  # Get text content
                 'pos': (float(xml_element.get("x")), float(xml_element.get("y"))),
                 'size': (float(xml_element.get("width")), float(xml_element.get("height")))}
 
@@ -1782,7 +1895,7 @@ class FrameItem(QGraphicsItem):
         width = float(data.get('size', [300, 200])[0])
         height = float(data.get('size', [300, 200])[1])
         frame = cls(data.get('text', ''), width, height, view)
-        frame.id = data.get('id', generate_short_id()) # Используем короткий ID
-        frame.setPos(QPointF(*data.get('pos', (0,0))))
-        frame.resize_handle.setVisible(False) # Сховати ручку спочатку
+        frame.id = data.get('id', generate_short_id())  # Используем короткий ID
+        frame.setPos(QPointF(*data.get('pos', (0, 0))))
+        frame.resize_handle.setVisible(False)  # Сховати ручку спочатку
         return frame
