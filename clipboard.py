@@ -4,9 +4,10 @@ from lxml import etree as ET
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QPointF
 
-# Імпортуємо необхідні типи елементів та команду вставки
+# Імпортуємо необхідні типи елементів
 from nodes import BaseNode, Connection, CommentItem, FrameItem
-from commands import PasteCommand # Команда вставки використовується тут
+# --- ВИДАЛЕНО: Імпорт PasteCommand тут ---
+# from commands import PasteCommand # Команда вставки використовується тут
 
 log = logging.getLogger(__name__)
 
@@ -16,6 +17,7 @@ def copy_selection_to_clipboard(scene):
     у буфер обміну у форматі XML.
     Повертає кількість скопійованих основних елементів (вузли+коментарі+фрейми).
     """
+    log.debug("Attempting copy_selection_to_clipboard...") # ДІАГНОСТИКА
     if not scene:
         log.warning("copy_selection_to_clipboard: Scene is None.")
         return 0
@@ -88,6 +90,16 @@ def paste_selection_from_clipboard(scene, paste_pos: QPointF, view, current_edit
     на сцену в зазначеній позиції.
     Повертає True, якщо команда була створена та додана до стеку, інакше False.
     """
+    # --- ДОДАНО: Локальний імпорт ---
+    log.debug("Attempting paste_selection_from_clipboard...") # ДІАГНОСТИКА
+    try:
+        from commands import PasteCommand # Імпортуємо тут, всередині функції
+        log.debug("  Successfully imported PasteCommand locally.") # ДІАГНОСТИКА
+    except ImportError as e:
+        log.error(f"  Failed to import PasteCommand locally: {e}", exc_info=True) # ДІАГНОСТИКА
+        return False
+    # --- КІНЕЦЬ ДОДАНОГО ---
+
     clipboard_string = QApplication.clipboard().text()
     if not clipboard_string:
         log.debug("paste_selection_from_clipboard: Clipboard is empty.")
@@ -104,6 +116,7 @@ def paste_selection_from_clipboard(scene, paste_pos: QPointF, view, current_edit
         # Створюємо та додаємо команду
         command = PasteCommand(scene, clipboard_string, paste_pos, view, current_edit_mode)
         undo_stack.push(command)
+        log.debug("  PasteCommand pushed to undo stack.") # ДІАГНОСТИКА
         return True
     except ET.XMLSyntaxError:
         log.warning("paste_selection_from_clipboard: Clipboard does not contain valid XML.")
